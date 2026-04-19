@@ -191,7 +191,8 @@
   const LOCAL_DEVICE_SETTING_KEYS = getSettingSpecs('local', { implementedOnly: true, persistedOnly: true }).map(item => item.key);
 
   function getRoute() {
-    return (window.location.hash || '#/home').replace('#/', '') || 'home';
+    const route = (window.location.hash || '#/home').replace('#/', '') || 'home';
+    return route === 'onboarding' ? 'home' : route;
   }
 
   function getDefaultSharedSettings() {

@@ -37,11 +37,20 @@
   let currentRoute = null;
   let currentView = null;
 
+  function getHashRoute() {
+    return window.location.hash.replace('#/', '') || 'home';
+  }
+
+  function normalizeRoute(route) {
+    if (route === 'onboarding') return 'home';
+    return ROUTES[route] ? route : 'home';
+  }
+
   /**
    * ナビゲーション
    */
   App.navigate = function(route) {
-    window.location.hash = '#/' + route;
+    window.location.hash = '#/' + normalizeRoute(route);
   };
 
   /**
@@ -164,8 +173,11 @@
    * ハッシュ変更によるルーティング
    */
   function handleRoute() {
-    const hash = window.location.hash.replace('#/', '') || 'home';
-    const route = ROUTES[hash] ? hash : 'home';
+    const hash = getHashRoute();
+    const route = normalizeRoute(hash);
+    if (hash !== route) {
+      window.history.replaceState(null, '', '#/' + route);
+    }
     renderView(route);
   }
 
@@ -266,13 +278,13 @@
     // ハッシュルーター
     window.addEventListener('hashchange', handleRoute);
 
-    // オンボーディングは初回も自動表示しない。必要な場合だけ #/onboarding へ直接入る。
+    // オンボーディングは初回も自動表示しない。古いURLが残っていてもホームへ寄せる。
     const onboardingDone = await App.DB.getSetting('onboardingDone', false);
     if (!onboardingDone) {
       await App.DB.setSetting('onboardingDone', true);
     }
-    if (getRoute() === 'onboarding') {
-      window.location.hash = '#/home';
+    if (getHashRoute() === 'onboarding') {
+      window.history.replaceState(null, '', '#/home');
     }
 
     // 初回ルーティング
