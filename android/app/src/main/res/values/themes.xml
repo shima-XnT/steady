@@ -1,0 +1,15 @@
+<resources>
+    <style name="Theme.SteadyWrapper" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Primary brand color. -->
+        <item name="colorPrimary">#6366f1</item>
+        <item name="colorPrimaryVariant">#4f46e5</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <!-- StatusBar color. -->
+        <item name="android:statusBarColor">#0a0a14</item>
+    </style>
+
+    <style name="Theme.SteadyWrapper.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+</resources>

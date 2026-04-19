@@ -1,0 +1,22 @@
+# Android build artifacts
+android/app/build/
+android/.gradle/
+android/build/
+android/app/src/main/assets/
+
+# IDE
+.idea/
+*.iml
+
+# System
+.DS_Store
+Thumbs.db
+
+# Test
+test-results/
+
+# Data
+data/sample-data.js
+
+# Gemini
+.gemini/

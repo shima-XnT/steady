@@ -1,0 +1,1073 @@
+/**
+ * Steady - GAS Sync Server v5
+ * スプレッドシートを「唯一の正(Source of Truth)」として管理
+ * 
+ * シート構成:
+ *   daily_summary     — 日付ごとの体調・判定・勤務サマリ
+ *   workout_details   — セット単位のトレーニング明細
+ *   health_daily      — 健康データ(歩数/睡眠/心拍)
+ *   schedule          — 勤務スケジュール
+ *   settings          — アプリ設定
+ *   sync_log          — 同期ログ(直近分)
+ *   tombstones        — 削除履歴（他端末への削除伝搬用）
+ *   RawData           — 後方互換用JSONブロブ(移行完了後削除可)
+ */
+
+var SHARED_SETTING_DEFINITIONS = {
+  weeklyGoal: { type: 'number' },
+  sessionDuration: { type: 'number' },
+  strictness: { type: 'number' },
+  gymHoursStart: { type: 'string' },
+  gymHoursEnd: { type: 'string' },
+  notifPrep: { type: 'boolean' },
+  notifJudge: { type: 'boolean' },
+  notifResume: { type: 'boolean' }
+};
+var SHARED_SETTING_KEYS = Object.keys(SHARED_SETTING_DEFINITIONS);
+
+// theme / deviceUiState / Health Connect 接続状態は localDeviceSettings 扱いで共有しない。
+// dataRetentionDays は現状 UI 未実装だが、将来設定化する場合も sharedSettings として扱う。
+
+// ============ POST: データ保存/更新 ============
+function doPost(e) {
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+  } catch (lockErr) {
+    return _json({ status: 'error', message: 'サーバーがビジーです。しばらく待ってから再試行してください。' });
+  }
+
+  try {
+    var data = JSON.parse(e.postData.contents);
+    var action = data.action || 'legacy';
+    var now = new Date().toISOString();
+    data.updatedAt = now;
+
+    // ★ 全アクション共通: payload正規化
+    data = _normalizePayload(data);
+
+    // クライアントからのrevision
+    var clientRevision = data._revision || null;
+
+    var result;
+    switch (action) {
+      case 'getAll':
+        result = _getAll();
+        break;
+      case 'getDate':
+        result = _getDate(data.date || data.targetDate || '');
+        break;
+      case 'saveDailySummary':
+        result = _saveDailySummary(data, clientRevision);
+        break;
+      case 'appendWorkoutDetails':
+        result = _appendWorkoutDetails(data);
+        break;
+      case 'saveHealthDaily':
+        result = _saveHealthDaily(data, clientRevision);
+        break;
+      case 'updateSchedule':
+        result = _updateSchedule(data, clientRevision);
+        break;
+      case 'deleteSchedule':
+        result = _deleteSchedule(data);
+        break;
+      case 'saveSettings':
+        _saveSettings(data.settings || {}, now);
+        result = { saved: true };
+        break;
+      case 'bulkSchedule':
+        result = _bulkSchedule(data);
+        break;
+      case 'archiveOldRows':
+        result = _archiveOldRows(data.olderThanDays || 90);
+        break;
+      case 'deleteWorkout':
+        result = _deleteWorkout(data);
+        break;
+      case 'legacy':
+      default:
+        result = _handleLegacyPost(data);
+        break;
+    }
+
+    _appendSyncLog(now, action, data.date || '', data.sourceDevice || '', 'success', '');
+    return _json({ status: 'success', data: result, updatedAt: now });
+  } catch (err) {
+    // CONFLICT はそのまま返す
+    if (err.message && err.message.indexOf('CONFLICT') === 0) {
+      return _json({ status: 'error', message: err.message });
+    }
+    try { _appendSyncLog(new Date().toISOString(), 'error', '', '', 'error', err.message); } catch(ex){}
+    return _json({ status: 'error', message: err.message });
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// ============ GET: データ取得 ============
+function doGet(e) {
+  try {
+    var action = e.parameter.action || 'getAll';
+
+    switch (action) {
+      case 'getAll':
+        return _json({ status: 'success', data: _getAll() });
+      case 'getDate':
+        return _json({ status: 'success', data: _getDate(e.parameter.date) });
+      case 'getSyncLog':
+        return _json({ status: 'success', data: _getSyncLog() });
+      default:
+        return _json({ status: 'error', message: 'Unknown action: ' + action });
+    }
+  } catch (err) {
+    return _json({ status: 'error', message: err.message });
+  }
+}
+
+// ============ 後方互換: 旧形式POST ============
+// ★ v44: 各シートに個別保存 → _rebuildDailySummary で再構築
+function _handleLegacyPost(data) {
+  var dateStr = data.date;
+  if (!dateStr) throw new Error('date is required');
+
+  // 設定データ
+  if (dateStr === '_settings') {
+    _saveSettings(data.settings || {}, data.updatedAt);
+    return { type: 'settings' };
+  }
+
+  var src = data.sourceDevice || 'unknown';
+  var by = data.updatedBy || 'app';
+  var clientRevision = data._revision || null;
+
+  // --- 1. health_daily ---
+  if (data.health) {
+    _saveHealthDaily({
+      date: dateStr,
+      steps: data.health.steps,
+      sleepMinutes: data.health.sleepMinutes,
+      heartRateAvg: data.health.heartRateAvg,
+      restingHeartRate: data.health.restingHeartRate,
+      weightKg: data.health.weightKg,
+      source: data.health.source || 'unknown',
+      fetchedAt: data.health.fetchedAt || '',
+      sourceDevice: src, updatedBy: by, updatedAt: data.updatedAt
+    }, clientRevision);
+  }
+
+  // --- 2. schedule ---
+  if (data.schedule) {
+    _updateSchedule({
+      date: dateStr,
+      shiftType: data.schedule.shiftType || '',
+      startTime: data.schedule.startTime || '',
+      endTime: data.schedule.endTime || '',
+      sourceDevice: src, updatedBy: by, updatedAt: data.updatedAt
+    }, clientRevision);
+  }
+
+  // --- 3. workout_details ---
+  if (data.exercises && data.exercises.length > 0) {
+    _appendWorkoutDetails({
+      date: dateStr,
+      workoutType: (data.workout || {}).type || '',
+      feeling: (data.workout || {}).feeling,
+      durationMinutes: (data.workout || {}).durationMinutes,
+      exercises: data.exercises,
+      sourceDevice: src, updatedBy: by, updatedAt: data.updatedAt
+    });
+  }
+
+  // --- 4. condition/judgment → daily_summaryにパッチ ---
+  // (condition/judgmentは個別シートがないため、daily_summaryに直接書き込み)
+  var condJudgPatch = {};
+  if (data.condition) {
+    condJudgPatch.fatigue = data.condition.fatigue;
+    condJudgPatch.muscleSoreness = data.condition.muscleSoreness;
+    condJudgPatch.sorenessAreas = data.condition.sorenessAreas || '';
+    condJudgPatch.motivation = data.condition.motivation;
+    condJudgPatch.mood = data.condition.mood;
+    condJudgPatch.memo = data.condition.note || '';
+  }
+  if (data.judgment) {
+    condJudgPatch.judgmentResult = data.judgment.result;
+    condJudgPatch.judgmentScore = data.judgment.score;
+    condJudgPatch.judgmentReason = Array.isArray(data.judgment.reasons)
+      ? data.judgment.reasons.join('; ')
+      : (data.judgment.resultLabel || '');
+  }
+  if (data.workout) {
+    condJudgPatch.didWorkout = data.workout.type && data.workout.type !== 'skip' ? 'yes' : (data.workout.type === 'skip' ? 'skip' : '');
+    condJudgPatch.workoutType = data.workout.type || '';
+    condJudgPatch.skipReason = _normalizeSkipReason(data.workout.skipReason);
+  }
+
+  // --- 5. daily_summary を全シートから再構築 ---
+  _rebuildDailySummary(dateStr, src, by, data.updatedAt, condJudgPatch, clientRevision);
+
+  // --- 6. RawData 後方互換保存 (将来廃止予定) ---
+  // 何のため: 旧クライアントが参照する JSON ブロブ互換を保つため。
+  // 旧キー: heartRate / avgHeartRate / restingHR / healthconnect を正規化済み payload で保存。
+  // なぜ残すか: 既存端末が RawData ベースで pull する移行期間を吸収するため。
+  // 撤去条件: RawData を参照する端末がなくなり、schemaVersion/settingsVersion 2 系へ揃ったら削除可能。
+  var rawSheet = _sheet('RawData');
+  var rawIdx = _findRow(rawSheet, dateStr);
+  var jsonStr = JSON.stringify(data);
+  if (rawIdx > -1) {
+    rawSheet.getRange(rawIdx, 2).setValue(jsonStr);
+    rawSheet.getRange(rawIdx, 3).setValue(data.updatedAt);
+  } else {
+    rawSheet.appendRow([dateStr, jsonStr, data.updatedAt]);
+  }
+
+  return { type: 'legacy', date: dateStr };
+}
+
+// ============ v44: 共通正規化関数群 ============
+
+/**
+ * ━━ 移行レイヤー（Apps Script 側の主責任点） ━━━━━━━━━━━━━━━
+ * 何のため: 旧クライアント / 旧RawData / 旧ローカルバックアップ由来の入力を、
+ *            保存前に正規キーへ寄せ、保存後は正規キーだけ返すため。
+ * 吸収する旧キー: heartRate, avgHeartRate, restingHR, healthconnect
+ * なぜ今は残すか: 既存端末や RawData シートの移行を壊さないため。
+ * 新規保存: フロント側は正規キーのみを使い、旧命名はここでだけ吸収する。
+ * 撤去条件: RawData 廃止 + 旧 payload を送るクライアントがなくなったら縮小可能。
+ *            ただし外部入力防御として最低限の正規化 helper は残してよい。
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ */
+function _normalizeHealthObject(health) {
+  if (!health) return health;
+  var normalized = {};
+  for (var key in health) normalized[key] = health[key];
+
+  if (normalized.heartRate != null && normalized.heartRateAvg == null) {
+    normalized.heartRateAvg = normalized.heartRate;
+  }
+  if (normalized.avgHeartRate != null && normalized.heartRateAvg == null) {
+    normalized.heartRateAvg = normalized.avgHeartRate;
+  }
+  if (normalized.restingHR != null && normalized.restingHeartRate == null) {
+    normalized.restingHeartRate = normalized.restingHR;
+  }
+  if (normalized.source === 'healthconnect') {
+    normalized.source = 'health_connect';
+  }
+
+  delete normalized.heartRate;
+  delete normalized.avgHeartRate;
+  delete normalized.restingHR;
+  return normalized;
+}
+
+function _hasInlineHealthFields(data) {
+  return ['heartRate', 'avgHeartRate', 'restingHR', 'heartRateAvg', 'restingHeartRate', 'source'].some(function(key) {
+    return data[key] !== undefined;
+  });
+}
+
+function _normalizeInlineHealthFields(data) {
+  if (!_hasInlineHealthFields(data)) return data;
+  var normalized = _normalizeHealthObject(data);
+  data.heartRateAvg = normalized.heartRateAvg;
+  data.restingHeartRate = normalized.restingHeartRate;
+  data.source = normalized.source;
+  delete data.heartRate;
+  delete data.avgHeartRate;
+  delete data.restingHR;
+  return data;
+}
+
+function _coerceSharedSettingValue(key, value) {
+  var definition = SHARED_SETTING_DEFINITIONS[key];
+  if (!definition) return value;
+  if (definition.type === 'number') return parseInt(value, 10) || 0;
+  if (definition.type === 'boolean') return value === true || value === 'true';
+  return value == null ? '' : String(value);
+}
+
+function _normalizeSharedSettings(settings) {
+  var normalized = {};
+  if (!settings) return normalized;
+  SHARED_SETTING_KEYS.forEach(function(key) {
+    if (Object.prototype.hasOwnProperty.call(settings, key)) {
+      normalized[key] = _coerceSharedSettingValue(key, settings[key]);
+    }
+  });
+  return normalized;
+}
+
+function _normalizePayload(data) {
+  if (data.settings) {
+    data.settingsType = 'shared';
+    data.settings = _normalizeSharedSettings(data.settings);
+  }
+  if (data.health) {
+    data.health = _normalizeHealthObject(data.health);
+  }
+  _normalizeInlineHealthFields(data);
+  return data;
+}
+
+/**
+ * skipReason を正規化
+ */
+function _normalizeSkipReason(raw) {
+  if (!raw) return '';
+  // カンマ区切り or 配列を統一
+  if (Array.isArray(raw)) return raw.join(', ');
+  return String(raw).trim();
+}
+
+/**
+ * 利用可能時間(分)を算出
+ * off: 960分(16時間), 勤務日: 23:00 - 退勤時刻
+ */
+function _computeAvailableMinutes(shiftType, endTime) {
+  if (shiftType === 'off') return 960;
+  if (!endTime) return '';
+  try {
+    var parts = String(endTime).split(':').map(Number);
+    if (isNaN(parts[0]) || isNaN(parts[1])) return '';
+    return Math.max(0, (23 * 60) - (parts[0] * 60 + parts[1]));
+  } catch(e) { return ''; }
+}
+
+/**
+ * workout_details シートからワークアウト合計時間(分)を算出
+ * - 有酸素(note欄に '○分' がある): そのまま加算
+ * - 筋トレ: セット数 × 1.5分 (推定)
+ */
+function _computeWorkoutDuration(dateStr) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('workout_details');
+  if (!sheet || sheet.getLastRow() <= 1) return '';
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
+  var dateIdx = headers.indexOf('date');
+  var noteIdx = headers.indexOf('note');
+  var totalMin = 0;
+  var found = false;
+  for (var i = 0; i < data.length; i++) {
+    if (_normDate(data[i][dateIdx]) !== _normDate(dateStr)) continue;
+    found = true;
+    var note = String(data[i][noteIdx] || '');
+    // '30分' のようなパターンから分数を抽出
+    var match = note.match(/(\d+)分/);
+    if (match) {
+      totalMin += parseInt(match[1]);
+    } else {
+      totalMin += 1.5; // 筋トレ1セット≒1.5分
+    }
+  }
+  return found ? Math.round(totalMin) : '';
+}
+
+/**
+ * ★ daily_summary を全シートから日付単位で再構築する。
+ * schedule, health_daily, workout_details から読み取り、
+ * condition/judgment は condJudgPatch から受け取る（個別シートがないため）。
+ *
+ * @param {string} dateStr - 対象日 (YYYY-MM-DD)
+ * @param {string} src - sourceDevice
+ * @param {string} by - updatedBy
+ * @param {string} updatedAt - 更新日時
+ * @param {object} condJudgPatch - condition/judgment/workout のパッチ (省略可)
+ * @param {number|null} clientRevision - クライアントrevision (省略可)
+ */
+function _rebuildDailySummary(dateStr, src, by, updatedAt, condJudgPatch, clientRevision) {
+  condJudgPatch = condJudgPatch || {};
+
+  // --- schedule シートから取得 ---
+  var sched = {};
+  var schedSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('schedule');
+  if (schedSheet && schedSheet.getLastRow() > 1) {
+    var sHeaders = schedSheet.getRange(1, 1, 1, schedSheet.getLastColumn()).getValues()[0];
+    var sIdx = _findRow(schedSheet, dateStr);
+    if (sIdx > -1) {
+      var sRow = schedSheet.getRange(sIdx, 1, 1, sHeaders.length).getValues()[0];
+      sHeaders.forEach(function(h, i) { sched[h] = sRow[i]; });
+    }
+  }
+
+  // --- health_daily シートから取得 ---
+  var health = {};
+  var healthSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('health_daily');
+  if (healthSheet && healthSheet.getLastRow() > 1) {
+    var hHeaders = healthSheet.getRange(1, 1, 1, healthSheet.getLastColumn()).getValues()[0];
+    var hIdx = _findRow(healthSheet, dateStr);
+    if (hIdx > -1) {
+      var hRow = healthSheet.getRange(hIdx, 1, 1, hHeaders.length).getValues()[0];
+      hHeaders.forEach(function(h, i) { health[h] = hRow[i]; });
+    }
+  }
+
+  // --- workout_details から duration を算出 ---
+  var workoutDuration = _computeWorkoutDuration(dateStr);
+
+  // --- condJudgPatch に含まれない列は既存のdaily_summaryから保持 ---
+  var existing = _getExistingDailySummaryFields(dateStr);
+
+  // --- availableMinutes ---
+  var shiftType = sched.shiftType || '';
+  var endTime = _normTime(sched.endTime) || '';
+  var availMin = _computeAvailableMinutes(shiftType, endTime);
+
+  // マージ: condJudgPatch > 既存daily_summary
+  var fatigue = _coalesce(condJudgPatch.fatigue, existing.fatigue);
+  var muscleSoreness = _coalesce(condJudgPatch.muscleSoreness, existing.muscleSoreness);
+  var sorenessAreas = condJudgPatch.sorenessAreas != null ? condJudgPatch.sorenessAreas : (existing.sorenessAreas || '');
+  var motivation = _coalesce(condJudgPatch.motivation, existing.motivation);
+  var mood = _coalesce(condJudgPatch.mood, existing.mood);
+  var memo = condJudgPatch.memo != null ? condJudgPatch.memo : (existing.memo || '');
+  var judgmentResult = _coalesce(condJudgPatch.judgmentResult, existing.judgmentResult);
+  var judgmentScore = _coalesce(condJudgPatch.judgmentScore, existing.judgmentScore);
+  var judgmentReason = condJudgPatch.judgmentReason != null ? condJudgPatch.judgmentReason : (existing.judgmentReason || '');
+  var didWorkout = condJudgPatch.didWorkout != null ? condJudgPatch.didWorkout : (existing.didWorkout || '');
+  var workoutType = condJudgPatch.workoutType != null ? condJudgPatch.workoutType : (existing.workoutType || '');
+  var skipReason = condJudgPatch.skipReason != null ? condJudgPatch.skipReason : (existing.skipReason || '');
+
+  // durationMinutes: workout_detailsから計算 > パッチ値 > 既存値
+  var totalDuration = _coalesce(workoutDuration || null, condJudgPatch.durationMinutes, existing.totalDurationMinutes);
+
+  _saveDailySummary({
+    date: dateStr,
+    shiftType: shiftType,
+    workStart: _normTime(sched.startTime) || '',
+    workEnd: endTime,
+    availableMinutes: availMin,
+    judgmentResult: judgmentResult,
+    judgmentScore: judgmentScore,
+    judgmentReason: judgmentReason,
+    didWorkout: didWorkout,
+    workoutType: workoutType,
+    totalDurationMinutes: totalDuration,
+    steps: _coalesce(health.steps, existing.steps),
+    sleepMinutes: _coalesce(health.sleepMinutes, existing.sleepMinutes),
+    heartRateAvg: _coalesce(health.heartRateAvg, existing.heartRateAvg),
+    restingHeartRate: _coalesce(health.restingHeartRate, existing.restingHeartRate),
+    fatigue: fatigue,
+    muscleSoreness: muscleSoreness,
+    sorenessAreas: sorenessAreas,
+    motivation: motivation,
+    mood: mood,
+    skipReason: skipReason,
+    memo: memo,
+    healthSource: health.source || existing.healthSource || '',
+    lastHealthFetchAt: health.fetchedAt || existing.lastHealthFetchAt || '',
+    sourceDevice: src,
+    updatedBy: by,
+    updatedAt: updatedAt
+  }, clientRevision);
+}
+
+/**
+ * 既存のdaily_summaryフィールドを取得する。
+ * 新データとマージするため。
+ */
+function _getExistingDailySummaryFields(dateStr) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('daily_summary');
+  if (!sheet || sheet.getLastRow() <= 1) return {};
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var idx = _findRow(sheet, dateStr);
+  if (idx <= 0) return {};
+  var row = sheet.getRange(idx, 1, 1, headers.length).getValues()[0];
+  var obj = {};
+  headers.forEach(function(h, i) { obj[h] = row[i]; });
+  return obj;
+}
+
+/**
+ * null でない最初の値を返す (COALESCE)
+ */
+function _coalesce() {
+  for (var i = 0; i < arguments.length; i++) {
+    if (arguments[i] != null && arguments[i] !== '' && arguments[i] !== undefined) return arguments[i];
+  }
+  return null;
+}
+
+// ============ daily_summary ============
+function _saveDailySummary(d, clientRevision) {
+  var weekdayNames = ['日','月','火','水','木','金','土'];
+  var weekday = '';
+  if (d.date) {
+    try {
+      var dt = new Date(d.date + 'T00:00:00');
+      if (!isNaN(dt.getTime())) weekday = weekdayNames[dt.getDay()];
+    } catch(e) {}
+  }
+  var sheet = _sheetWithHeaders('daily_summary', [
+    'date','weekday','shiftType','workStart','workEnd','availableMinutes',
+    'judgmentResult','judgmentScore','judgmentReason',
+    'didWorkout','workoutType','totalDurationMinutes',
+    'steps','sleepMinutes','heartRateAvg','restingHeartRate',
+    'fatigue','muscleSoreness','sorenessAreas','motivation','mood',
+    'skipReason','memo','healthSource','lastHealthFetchAt','lastSyncedAt',
+    'sourceDevice','updatedBy','updatedAt','revision'
+  ]);
+  var row = [
+    d.date, weekday, d.shiftType||'', d.workStart||'', d.workEnd||'', d.availableMinutes != null ? d.availableMinutes : '',
+    d.judgmentResult != null ? d.judgmentResult : '', d.judgmentScore != null ? d.judgmentScore : '', d.judgmentReason||'',
+    d.didWorkout||'', d.workoutType||'', d.totalDurationMinutes != null ? d.totalDurationMinutes : '',
+    d.steps != null ? d.steps : '', d.sleepMinutes != null ? d.sleepMinutes : '',
+    d.heartRateAvg != null ? d.heartRateAvg : '', d.restingHeartRate != null ? d.restingHeartRate : '',
+    d.fatigue != null ? d.fatigue : '', d.muscleSoreness != null ? d.muscleSoreness : '', d.sorenessAreas||'',
+    d.motivation != null ? d.motivation : '', d.mood != null ? d.mood : '', d.skipReason||'', d.memo||'',
+    d.healthSource||'', d.lastHealthFetchAt||'', new Date().toISOString(),
+    d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
+  ];
+  _upsertRow(sheet, d.date, row, clientRevision);
+  return { sheet: 'daily_summary', date: d.date };
+}
+
+// ============ workout_details ============
+function _appendWorkoutDetails(d) {
+  var sheet = _sheetWithHeaders('workout_details', [
+    'date','workoutType','exerciseName','setIndex','weightKg','reps',
+    'setCount','completed','targetWeightKg','targetReps','note',
+    'sourceDevice','updatedBy','updatedAt','revision'
+  ]);
+  
+  // 同日の既存行を削除して再挿入
+  _deleteRowsByDate(sheet, d.date);
+
+  var exercises = d.exercises || [];
+  for (var ei = 0; ei < exercises.length; ei++) {
+    var ex = exercises[ei];
+    var sets = Array.isArray(ex.sets) ? ex.sets : [];
+    if (ex.isCardio) {
+      sheet.appendRow([
+        d.date, d.workoutType||'', ex.name||'', 1, 0, 0,
+        1, sets[0] && sets[0].completed ? 'yes' : 'no', 0, 0,
+        (ex.durationMin || 0) + '分',
+        d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
+      ]);
+    } else {
+      for (var si = 0; si < sets.length; si++) {
+        var s = sets[si];
+        sheet.appendRow([
+          d.date, d.workoutType||'', ex.name||'', s.setNumber||'',
+          s.weight||0, s.reps||0, sets.length,
+          s.completed ? 'yes' : 'no',
+          ex.recommended ? (ex.recommended.weight||'') : '', ex.recommended ? (ex.recommended.reps||'') : '',
+          '', d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
+        ]);
+      }
+    }
+  }
+  return { sheet: 'workout_details', date: d.date, count: exercises.length };
+}
+
+// ============ health_daily ============
+function _saveHealthDaily(d, clientRevision) {
+  var sheet = _sheetWithHeaders('health_daily', [
+    'date','steps','sleepMinutes','heartRateAvg','restingHeartRate',
+    'weightKg','source','fetchedAt','syncedAt','status',
+    'sourceDevice','updatedBy','updatedAt','revision'
+  ]);
+  var row = [
+    d.date,
+    d.steps != null ? d.steps : '',
+    d.sleepMinutes != null ? d.sleepMinutes : '',
+    d.heartRateAvg != null ? d.heartRateAvg : '',
+    d.restingHeartRate != null ? d.restingHeartRate : '',
+    d.weightKg != null ? d.weightKg : '',
+    d.source||'', d.fetchedAt||'', d.syncedAt||new Date().toISOString(),
+    'synced', d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
+  ];
+  _upsertRow(sheet, d.date, row, clientRevision);
+  return { sheet: 'health_daily', date: d.date };
+}
+
+// ============ schedule ============
+function _updateSchedule(d, clientRevision) {
+  var sheet = _sheetWithHeaders('schedule', [
+    'date','shiftType','startTime','endTime','note',
+    'sourceDevice','updatedBy','updatedAt','revision'
+  ]);
+  var row = [
+    d.date, d.shiftType||'', d.startTime||'', d.endTime||'', d.note||'',
+    d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
+  ];
+  _upsertRow(sheet, d.date, row, clientRevision);
+  // ★ dailySummary再構築（availableMinutesが自動計算される）
+  // ただし legacyPostからの呼出時は _rebuildDailySummary が別途呼ばれるのでスキップ可能
+  // → 冪等なので二重に呼んでも問題ない
+  return { sheet: 'schedule', date: d.date };
+}
+
+function _deleteSchedule(d) {
+  var sheet = _sheetWithHeaders('schedule', [
+    'date','shiftType','startTime','endTime','note',
+    'sourceDevice','updatedBy','updatedAt','revision'
+  ]);
+  var idx = _findRow(sheet, d.date);
+  if (idx > -1) sheet.deleteRow(idx);
+  // tombstone記録
+  _addTombstone(d.date, 'schedule', d.sourceDevice || '', d.updatedAt);
+  // ★ daily_summary再構築（schedule列がクリアされる）
+  _rebuildDailySummary(d.date, d.sourceDevice || '', 'delete', d.updatedAt || new Date().toISOString(), {}, null);
+  return { deleted: d.date };
+}
+
+// ============ 月間スケジュール一括保存 ============
+function _bulkSchedule(data) {
+  var schedules = data.schedules || [];
+  if (schedules.length === 0) return { count: 0 };
+  
+  var sheet = _sheetWithHeaders('schedule', [
+    'date','shiftType','startTime','endTime','note',
+    'sourceDevice','updatedBy','updatedAt','revision'
+  ]);
+  var now = new Date().toISOString();
+  var count = 0;
+  
+  for (var i = 0; i < schedules.length; i++) {
+    var s = schedules[i];
+    var row = [
+      s.date, s.shiftType || '', s.startTime || '', s.endTime || '', s.note || '',
+      data.sourceDevice || '', 'bulk', now, 1
+    ];
+    _upsertRow(sheet, s.date, row);
+    count++;
+  }
+  
+  return { sheet: 'schedule', count: count, year: data.year, month: data.month };
+}
+
+// ============ ワークアウト削除 ============
+function _deleteWorkout(data) {
+  var dateStr = data.date;
+  if (!dateStr) throw new Error('date is required for deleteWorkout');
+  
+  // workout_details を日付で全削除
+  var wdSheet = _sheet('workout_details');
+  _deleteRowsByDate(wdSheet, dateStr);
+  
+  // tombstone記録
+  _addTombstone(dateStr, 'workout', data.sourceDevice || '', data.updatedAt);
+  
+  // ★ daily_summary再構築（workout列がクリアされる）
+  // didWorkout/workoutType/skipReasonを空にするパッチを渡す
+  _rebuildDailySummary(dateStr, data.sourceDevice || '', 'delete', data.updatedAt || new Date().toISOString(), {
+    didWorkout: '',
+    workoutType: '',
+    skipReason: ''
+  }, null);
+  
+  return { deleted: true, date: dateStr };
+}
+
+// ============ tombstone ============
+function _addTombstone(dateStr, type, device, timestamp) {
+  var sheet = _sheetWithHeaders('tombstones', [
+    'date', 'type', 'deletedAt', 'sourceDevice'
+  ]);
+  sheet.appendRow([dateStr, type, timestamp || new Date().toISOString(), device]);
+}
+
+function _getTombstones() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('tombstones');
+  if (!sheet || sheet.getLastRow() <= 1) return [];
+  var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
+  var byDate = {};
+  for (var i = 0; i < data.length; i++) {
+    var d = _normDate(data[i][0]);
+    var type = data[i][1];
+    if (!d) continue;
+    if (!byDate[d]) byDate[d] = [];
+    if (byDate[d].indexOf(type) === -1) byDate[d].push(type);
+  }
+  return byDate;
+}
+
+// ============ getAll ============
+function _getAll() {
+  var byDate = {};
+
+  // --- schedule シートから全日程を読み込む ---
+  var schedSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('schedule');
+  if (schedSheet && schedSheet.getLastRow() > 1) {
+    var headers = schedSheet.getRange(1, 1, 1, schedSheet.getLastColumn()).getValues()[0];
+    var data = schedSheet.getRange(2, 1, schedSheet.getLastRow() - 1, schedSheet.getLastColumn()).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var obj = {};
+      headers.forEach(function(h, idx) { obj[h] = data[i][idx]; });
+      var d = _normDate(obj.date);
+      if (!d) continue;
+      if (!byDate[d]) byDate[d] = { date: d };
+      byDate[d].schedule = {
+        date: d,
+        shiftType: obj.shiftType || '',
+        startTime: _normTime(obj.startTime),
+        endTime: _normTime(obj.endTime),
+        updatedAt: obj.updatedAt || '',
+        _revision: parseInt(obj.revision) || 0
+      };
+      if (obj.updatedAt && _safeDateTs(obj.updatedAt) > _safeDateTs(byDate[d].updatedAt)) {
+        byDate[d].updatedAt = obj.updatedAt;
+      }
+    }
+  }
+
+  // --- health_daily シートから読み込む ---
+  var healthSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('health_daily');
+  if (healthSheet && healthSheet.getLastRow() > 1) {
+    var headers = healthSheet.getRange(1, 1, 1, healthSheet.getLastColumn()).getValues()[0];
+    var data = healthSheet.getRange(2, 1, healthSheet.getLastRow() - 1, healthSheet.getLastColumn()).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var obj = {};
+      headers.forEach(function(h, idx) { obj[h] = data[i][idx]; });
+      var d = _normDate(obj.date);
+      if (!d) continue;
+      if (!byDate[d]) byDate[d] = { date: d };
+      var healthObj = {
+        date: d,
+        source: obj.source || 'sync',
+        _revision: parseInt(obj.revision) || 0
+      };
+      // null/0の区別: 空セル=null（含めない）、0=ゼロ（含める）
+      if (obj.steps !== '' && obj.steps !== null && obj.steps !== undefined) healthObj.steps = Number(obj.steps);
+      if (obj.sleepMinutes !== '' && obj.sleepMinutes !== null && obj.sleepMinutes !== undefined) healthObj.sleepMinutes = Number(obj.sleepMinutes);
+      if (obj.heartRateAvg !== '' && obj.heartRateAvg !== null && obj.heartRateAvg !== undefined) healthObj.heartRateAvg = Number(obj.heartRateAvg);
+      if (obj.restingHeartRate !== '' && obj.restingHeartRate !== null && obj.restingHeartRate !== undefined) healthObj.restingHeartRate = Number(obj.restingHeartRate);
+      byDate[d].health = healthObj;
+      if (obj.updatedAt && _safeDateTs(obj.updatedAt) > _safeDateTs(byDate[d].updatedAt)) {
+        byDate[d].updatedAt = obj.updatedAt;
+      }
+    }
+  }
+
+  // --- daily_summary シートから読み込む ---
+  var summarySheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('daily_summary');
+  if (summarySheet && summarySheet.getLastRow() > 1) {
+    var headers = summarySheet.getRange(1, 1, 1, summarySheet.getLastColumn()).getValues()[0];
+    var data = summarySheet.getRange(2, 1, summarySheet.getLastRow() - 1, summarySheet.getLastColumn()).getValues();
+    for (var i = 0; i < data.length; i++) {
+      var obj = {};
+      headers.forEach(function(h, idx) { obj[h] = data[i][idx]; });
+      var d = _normDate(obj.date);
+      if (!d) continue;
+      if (!byDate[d]) byDate[d] = { date: d };
+      var dsRevision = parseInt(obj.revision) || 0;
+      // conditionデータ
+      if (obj.fatigue || obj.muscleSoreness || obj.motivation || obj.mood) {
+        byDate[d].condition = {
+          date: d,
+          fatigue: Number(obj.fatigue) || 0,
+          muscleSoreness: Number(obj.muscleSoreness) || 0,
+          motivation: Number(obj.motivation) || 3,
+          mood: Number(obj.mood) || 3
+        };
+      }
+      // judgmentデータ
+      if (obj.judgmentResult) {
+        byDate[d].judgment = {
+          date: d,
+          result: Number(obj.judgmentResult),
+          score: Number(obj.judgmentScore) || 0,
+          resultLabel: obj.judgmentReason || ''
+        };
+      }
+      // workoutデータ
+      if (obj.didWorkout === 'yes' || obj.didWorkout === true) {
+        byDate[d].workout = {
+          date: d,
+          type: obj.workoutType || 'full'
+        };
+      }
+      // daily_summary の revision (最大値を使用)
+      if (!byDate[d]._revision || dsRevision > byDate[d]._revision) {
+        byDate[d]._revision = dsRevision;
+      }
+      if (obj.updatedAt && _safeDateTs(obj.updatedAt) > _safeDateTs(byDate[d].updatedAt)) {
+        byDate[d].updatedAt = obj.updatedAt;
+      }
+    }
+  }
+
+  // --- RawData (後方互換) ---
+  var rawSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('RawData');
+  if (rawSheet && rawSheet.getLastRow() > 0) {
+    var rawValues = rawSheet.getDataRange().getValues();
+    for (var i = 0; i < rawValues.length; i++) {
+      if (rawValues[i][1]) {
+        try {
+          var parsed = _normalizePayload(JSON.parse(rawValues[i][1]));
+          if (parsed.date === '_settings') continue;
+          if (parsed.date && !byDate[parsed.date]) {
+            byDate[parsed.date] = parsed;
+          }
+        } catch(ex){}
+      }
+    }
+  }
+
+  // --- tombstones: 他端末への削除伝搬 ---
+  var tombstones = _getTombstones();
+  for (var tDate in tombstones) {
+    if (!byDate[tDate]) byDate[tDate] = { date: tDate };
+    byDate[tDate]._deleted = tombstones[tDate];
+  }
+
+  // 設定
+  var settingsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('settings');
+  if (settingsSheet) {
+    var settingsData = _loadSettings(settingsSheet);
+    if (settingsData) {
+      var results = [];
+      for (var key in byDate) {
+        results.push(byDate[key]);
+      }
+      results.push(settingsData);
+      return results;
+    }
+  }
+
+  var results = [];
+  for (var key in byDate) {
+    results.push(byDate[key]);
+  }
+  return results;
+}
+
+function _getDate(dateStr) {
+  if (!dateStr) throw new Error('date required');
+  var rawSheet = _sheet('RawData');
+  var idx = _findRow(rawSheet, dateStr);
+  if (idx > -1) {
+    return _normalizePayload(JSON.parse(rawSheet.getRange(idx, 2).getValue()));
+  }
+  return null;
+}
+
+// ============ 同期ログ ============
+function _appendSyncLog(timestamp, action, date, device, status, error) {
+  var sheet = _sheetWithHeaders('sync_log', [
+    'timestamp','action','date','device','status','error'
+  ]);
+  sheet.appendRow([timestamp, action, date, device, status, error]);
+  var rows = sheet.getLastRow();
+  if (rows > 201) {
+    sheet.deleteRows(2, rows - 201);
+  }
+}
+
+function _getSyncLog() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('sync_log');
+  if (!sheet) return [];
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return [];
+  var headers = data[0];
+  return data.slice(1).map(function(row) {
+    var obj = {};
+    headers.forEach(function(h, i) { obj[h] = row[i]; });
+    return obj;
+  }).reverse().slice(0, 50);
+}
+
+// ============ アーカイブ ============
+function _archiveOldRows(olderThanDays) {
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - olderThanDays);
+  var cutoffStr = cutoff.toISOString().slice(0, 10);
+  var archived = 0;
+
+  // workout_details のアーカイブ
+  var wdSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('workout_details');
+  if (wdSheet && wdSheet.getLastRow() > 1) {
+    var wdHeaders = wdSheet.getRange(1, 1, 1, wdSheet.getLastColumn()).getValues()[0];
+    var archSheet = _sheetWithHeaders('archive_workout_details', wdHeaders);
+    var data = wdSheet.getDataRange().getValues();
+    var toDelete = [];
+    for (var i = data.length - 1; i >= 1; i--) {
+      if (String(data[i][0]) < cutoffStr) {
+        archSheet.appendRow(data[i]);
+        toDelete.push(i + 1);
+        archived++;
+      }
+    }
+    for (var j = 0; j < toDelete.length; j++) {
+      wdSheet.deleteRow(toDelete[j]);
+    }
+  }
+
+  // daily_summary のアーカイブ（365日超え分のみ）
+  var dsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('daily_summary');
+  if (dsSheet && dsSheet.getLastRow() > 1) {
+    var archCutoff = new Date();
+    archCutoff.setDate(archCutoff.getDate() - 365);
+    var archCutoffStr = archCutoff.toISOString().slice(0, 10);
+    var dsHeaders = dsSheet.getRange(1, 1, 1, dsSheet.getLastColumn()).getValues()[0];
+    var archDsSheet = _sheetWithHeaders('archive_daily', dsHeaders);
+    var dsData = dsSheet.getDataRange().getValues();
+    var dsToDelete = [];
+    for (var i = dsData.length - 1; i >= 1; i--) {
+      if (String(dsData[i][0]) < archCutoffStr) {
+        archDsSheet.appendRow(dsData[i]);
+        dsToDelete.push(i + 1);
+        archived++;
+      }
+    }
+    for (var j = 0; j < dsToDelete.length; j++) {
+      dsSheet.deleteRow(dsToDelete[j]);
+    }
+  }
+
+  // tombstones のクリーンアップ（90日超え分を削除）
+  var tsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('tombstones');
+  if (tsSheet && tsSheet.getLastRow() > 1) {
+    var tsData = tsSheet.getDataRange().getValues();
+    for (var i = tsData.length - 1; i >= 1; i--) {
+      var delAt = tsData[i][2];
+      if (delAt && _safeDateTs(delAt) < cutoff.getTime()) {
+        tsSheet.deleteRow(i + 1);
+      }
+    }
+  }
+
+  return { archived: archived, olderThan: cutoffStr };
+}
+
+// ============ 設定 ============
+function _saveSettings(settings, updatedAt) {
+  var sheet = _sheetWithHeaders('settings', ['key', 'value', 'updatedAt']);
+  var normalized = _normalizeSharedSettings(settings);
+  for (var key in normalized) {
+    var value = normalized[key];
+    var idx = _findRow(sheet, key);
+    if (idx > -1) {
+      sheet.getRange(idx, 2).setValue(String(value));
+      sheet.getRange(idx, 3).setValue(updatedAt);
+    } else {
+      sheet.appendRow([key, String(value), updatedAt]);
+    }
+  }
+}
+
+function _loadSettings(sheet) {
+  if (!sheet) return null;
+  var data = sheet.getDataRange().getValues();
+  if (data.length <= 1) return null;
+  var settings = {};
+  var latestUpdate = '';
+  for (var i = 1; i < data.length; i++) {
+    var key = data[i][0];
+    if (SHARED_SETTING_KEYS.indexOf(key) === -1) continue;
+    var val = _coerceSharedSettingValue(key, data[i][1]);
+    settings[key] = val;
+    if (data[i][2] && data[i][2] > latestUpdate) latestUpdate = data[i][2];
+  }
+  return { date: '_settings', updatedAt: latestUpdate, settingsType: 'shared', settings: settings };
+}
+
+// ============ ヘルパー ============
+
+function _safeDateTs(v) {
+  if (!v && v !== 0) return 0;
+  if (v instanceof Date) return v.getTime();
+  var t = new Date(String(v)).getTime();
+  return isNaN(t) ? 0 : t;
+}
+
+function _normDate(v) {
+  if (!v) return '';
+  if (v instanceof Date) {
+    var y = v.getFullYear();
+    var m = ('0' + (v.getMonth() + 1)).slice(-2);
+    var d = ('0' + v.getDate()).slice(-2);
+    return y + '-' + m + '-' + d;
+  }
+  var s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var dt = new Date(s);
+  if (!isNaN(dt.getTime())) {
+    var y = dt.getFullYear();
+    var m = ('0' + (dt.getMonth() + 1)).slice(-2);
+    var d = ('0' + dt.getDate()).slice(-2);
+    return y + '-' + m + '-' + d;
+  }
+  return s;
+}
+
+function _normTime(v) {
+  if (!v) return '';
+  if (v instanceof Date) {
+    var h = ('0' + v.getHours()).slice(-2);
+    var m = ('0' + v.getMinutes()).slice(-2);
+    return h + ':' + m;
+  }
+  var s = String(v).trim();
+  if (/^\d{1,2}:\d{2}$/.test(s)) return s.padStart(5, '0');
+  var dt = new Date(s);
+  if (!isNaN(dt.getTime())) {
+    var h = ('0' + dt.getHours()).slice(-2);
+    var m = ('0' + dt.getMinutes()).slice(-2);
+    return h + ':' + m;
+  }
+  return s;
+}
+
+function _sheet(name) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var s = ss.getSheetByName(name);
+  if (!s) s = ss.insertSheet(name);
+  return s;
+}
+
+function _sheetWithHeaders(name, headers) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var s = ss.getSheetByName(name);
+  if (!s) {
+    s = ss.insertSheet(name);
+    s.getRange(1, 1, 1, headers.length).setValues([headers]);
+    s.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    s.setFrozenRows(1);
+  }
+  return s;
+}
+
+function _findRow(sheet, key) {
+  var data = sheet.getDataRange().getValues();
+  var normKey = _normDate(key) || String(key).trim();
+  for (var i = 1; i < data.length; i++) {
+    var cellVal = _normDate(data[i][0]) || String(data[i][0]).trim();
+    if (cellVal === normKey) return i + 1;
+  }
+  return -1;
+}
+
+function _upsertRow(sheet, key, row, clientRevision) {
+  var idx = _findRow(sheet, key);
+  if (idx > -1) {
+    var lastCol = sheet.getLastColumn();
+    var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    var revIdx = headers.indexOf('revision');
+    if (revIdx > -1) {
+      var serverRev = parseInt(sheet.getRange(idx, revIdx + 1).getValue()) || 0;
+      // conflict検出: クライアントがrevisionを明示的に送信した場合のみ照合
+      if (clientRevision != null && clientRevision > 0 && serverRev > clientRevision) {
+        throw new Error('CONFLICT: revision mismatch (server=' + serverRev + ', client=' + clientRevision + ') for key=' + key);
+      }
+      row[revIdx] = serverRev + 1;
+    }
+    sheet.getRange(idx, 1, 1, row.length).setValues([row]);
+  } else {
+    sheet.appendRow(row);
+  }
+}
+
+function _deleteRowsByDate(sheet, dateStr) {
+  var data = sheet.getDataRange().getValues();
+  for (var i = data.length - 1; i >= 1; i--) {
+    if (_normDate(data[i][0]) === _normDate(dateStr)) {
+      sheet.deleteRow(i + 1);
+    }
+  }
+}
+
+function _json(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
