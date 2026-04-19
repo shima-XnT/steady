@@ -1108,12 +1108,16 @@
   }
 
   function renderWorkoutExercise(exercise, index) {
+    // カテゴリが有酸素なら isCardio を自動復元
+    if (!exercise.isCardio && exercise.category === '有酸素') exercise.isCardio = true;
     const done = countExerciseDone(exercise);
     const total = exercise.sets?.length || 0;
     const currentLine = summarizeExercise(exercise);
-    const previousLine = exercise.previous ? formatTriplet(exercise.previous.weight || 0, exercise.previous.reps || 0, exercise.previous.sets || total) : '履歴なし';
+    const previousLine = exercise.previous
+      ? (exercise.isCardio ? `${safeNumber(exercise.previous.durationMin || exercise.previous.reps, 0)}分` : formatTriplet(exercise.previous.weight || 0, exercise.previous.reps || 0, exercise.previous.sets || total))
+      : '履歴なし';
     const recommendedLine = exercise.isCardio
-      ? `${safeNumber(exercise.durationMin, 0)}分`
+      ? `速度${safeNumber(exercise.speed, 5)}km/h × ${safeNumber(exercise.durationMin, 10)}分`
       : formatTriplet(exercise.recommended?.weight || 0, exercise.recommended?.reps || 0, exercise.recommended?.sets || exercise.sets?.length || 0);
 
     return `
@@ -1150,6 +1154,14 @@
 
         ${exercise.isCardio ? `
           <div class="reboot-set-table">
+            <div class="reboot-set-row">
+              <div class="reboot-set-label">速度</div>
+              <div class="reboot-set-inputs">
+                <input class="form-input" type="number" inputmode="decimal" min="0" step="0.5" value="${h(editableNumberValue(exercise.speed, 5))}"
+                  oninput="App.Views.Workout.updateCardio(${index}, 'speed', this.value)">
+                <span>km/h</span>
+              </div>
+            </div>
             <div class="reboot-set-row">
               <div class="reboot-set-label">時間</div>
               <div class="reboot-set-inputs">

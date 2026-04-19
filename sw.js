@@ -1,5 +1,5 @@
 // Steady Service Worker — オフラインキャッシュ
-const CACHE_NAME = 'steady-v60';
+const CACHE_NAME = 'steady-v61';
 const ASSET_PATHS = [
   'index.html',
   'css/index.css',
