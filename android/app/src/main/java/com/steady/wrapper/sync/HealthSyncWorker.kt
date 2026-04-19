@@ -60,7 +60,7 @@ class HealthSyncWorker(
         // 3. GAS API に POST
         return try {
             val success = postToGas(entity.date, entity.steps, entity.sleepMinutes,
-                entity.sleepStartAt, entity.sleepEndAt, entity.avgHeartRate, entity.restingHeartRate)
+                entity.sleepStartAt, entity.sleepEndAt, entity.heartRateAvg, entity.restingHeartRate)
             if (success) {
                 Log.d(TAG, "Successfully synced to GAS for $today")
                 Result.success()

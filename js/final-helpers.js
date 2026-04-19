@@ -634,9 +634,9 @@
     };
 
     const originalPushToCloud = App.DB.pushToCloud.bind(App.DB);
-    App.DB.pushToCloud = async function(dateStr) {
+    App.DB.pushToCloud = async function(dateStr, options = {}) {
       await this.setSaveStatus('busy', `${dateStr} の共有保存`, '');
-      const result = await originalPushToCloud(dateStr);
+      const result = await originalPushToCloud(dateStr, options);
       if (result.ok) {
         await this.setSaveStatus('success', `${dateStr} の共有保存`, '');
       } else if (/Apps Script URL|Sync URL/.test(result.error || '')) {

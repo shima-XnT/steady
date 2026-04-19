@@ -23,6 +23,21 @@
       } catch(e) { return ''; }
     },
 
+    // ISO時刻文字列 → 「23:40」形式。睡眠セッション表示の共通入口。
+    formatClockFromIso(value) {
+      if (!value) return '';
+      const date = new Date(String(value));
+      if (Number.isNaN(date.getTime())) return '';
+      return date.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+    },
+
+    // 睡眠セッション → 「23:40-06:20」形式。旧キャッシュ対策として window にも公開する。
+    formatSleepWindow(health) {
+      const start = this.formatClockFromIso(health?.sleepStartAt);
+      const end = this.formatClockFromIso(health?.sleepEndAt);
+      return start && end ? `${start}-${end}` : '';
+    },
+
     // 日付フォーマット
     today() {
       const d = new Date();
@@ -265,4 +280,6 @@
   };
 
   App.Utils = Utils;
+  window.formatSleepWindow = window.formatSleepWindow || ((health) => App.Utils.formatSleepWindow(health));
+  window.formatClockFromIso = window.formatClockFromIso || ((value) => App.Utils.formatClockFromIso(value));
 })();

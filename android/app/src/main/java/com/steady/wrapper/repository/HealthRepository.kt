@@ -42,7 +42,7 @@ class HealthRepository(
                 sleepMinutes = sleep,
                 sleepStartAt = sleepSummary?.startAt,
                 sleepEndAt = sleepSummary?.endAt,
-                avgHeartRate = heartRate,
+                heartRateAvg = heartRate,
                 restingHeartRate = restingHr,
                 source = "health_connect",
                 syncedAt = ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
@@ -60,7 +60,7 @@ class HealthRepository(
                     HealthDailyEntity(
                         date = dateStr,
                         steps = null, sleepMinutes = null, sleepStartAt = null, sleepEndAt = null,
-                        avgHeartRate = null, restingHeartRate = null,
+                        heartRateAvg = null, restingHeartRate = null,
                         source = "health_connect",
                         syncedAt = ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                         status = "error"
