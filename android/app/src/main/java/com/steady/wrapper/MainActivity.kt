@@ -49,7 +49,9 @@ class MainActivity : AppCompatActivity() {
 
         // Listeners
         syncButton.setOnClickListener { manualSync() }
-        permissionButton.setOnClickListener { permissionHelper.requestPermissions() }
+        permissionButton.setOnClickListener {
+            lifecycleScope.launch { permissionHelper.requestPermissions(); updateUI() }
+        }
 
         // Initial state
         updateUI()
