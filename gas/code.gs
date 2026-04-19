@@ -4,6 +4,7 @@
  * 
  * シート構成:
  *   daily_summary     — 日付ごとの体調・判定・勤務サマリ
+ *   workout_sessions  — 日別ワークアウト開始/終了メタデータ
  *   workout_details   — セット単位のトレーニング明細
  *   health_daily      — 健康データ(歩数/睡眠/心拍)
  *   schedule          — 勤務スケジュール
@@ -48,6 +49,8 @@ function doPost(e) {
 
     // クライアントからのrevision
     var clientRevision = data._revision || null;
+    var healthRevision = data._healthRevision || (data.health && data.health._revision) || clientRevision;
+    var scheduleRevision = data._scheduleRevision || (data.schedule && data.schedule._revision) || clientRevision;
 
     var result;
     switch (action) {
@@ -61,13 +64,47 @@ function doPost(e) {
         result = _saveDailySummary(data, clientRevision);
         break;
       case 'appendWorkoutDetails':
+        var directSession = null;
+        if (data.workout || data.startAt || data.endAt || data.startTime || data.endTime || data.durationMinutes != null) {
+          directSession = _saveWorkoutSession({
+            date: data.date,
+            workoutType: data.workoutType || (data.workout && data.workout.type) || '',
+            status: data.status || (data.workout && data.workout.status) || '',
+            startAt: data.startAt || (data.workout && data.workout.startAt) || '',
+            startTime: data.startTime || (data.workout && data.workout.startTime) || '',
+            endAt: data.endAt || (data.workout && data.workout.endAt) || '',
+            endTime: data.endTime || (data.workout && data.workout.endTime) || '',
+            durationMinutes: data.durationMinutes != null ? data.durationMinutes : (data.workout && data.workout.durationMinutes),
+            feeling: data.feeling != null ? data.feeling : (data.workout && data.workout.feeling),
+            memo: data.memo || (data.workout && data.workout.memo) || '',
+            skipReason: data.skipReason || (data.workout && data.workout.skipReason) || '',
+            sourceDevice: data.sourceDevice || '',
+            updatedBy: data.updatedBy || 'app',
+            updatedAt: data.updatedAt || now
+          }, null);
+        }
         result = _appendWorkoutDetails(data);
+        var directWorkoutPatch = _workoutSummaryPatch(directSession || {
+          date: data.date,
+          workoutType: data.workoutType || (data.workout && data.workout.type) || '',
+          status: data.status || (data.workout && data.workout.status) || '',
+          durationMinutes: data.durationMinutes
+        });
+        if (directWorkoutPatch.didWorkout == null) directWorkoutPatch.didWorkout = 'yes';
+        if (directWorkoutPatch.workoutType == null) directWorkoutPatch.workoutType = data.workoutType || (data.workout && data.workout.type) || '';
+        _rebuildDailySummary(data.date, data.sourceDevice || '', data.updatedBy || 'app', data.updatedAt || now, {
+          didWorkout: 'yes',
+          workoutType: directWorkoutPatch.workoutType,
+          durationMinutes: directWorkoutPatch.durationMinutes
+        }, clientRevision);
         break;
       case 'saveHealthDaily':
-        result = _saveHealthDaily(data, clientRevision);
+        result = _saveHealthDaily(data, healthRevision);
+        _rebuildDailySummary(data.date, data.sourceDevice || '', data.updatedBy || 'app', data.updatedAt || now, {}, null);
         break;
       case 'updateSchedule':
-        result = _updateSchedule(data, clientRevision);
+        result = _updateSchedule(data, scheduleRevision);
+        _rebuildDailySummary(data.date, data.sourceDevice || '', data.updatedBy || 'app', data.updatedAt || now, {}, null);
         break;
       case 'deleteSchedule':
         result = _deleteSchedule(data);
@@ -140,6 +177,8 @@ function _handleLegacyPost(data) {
   var src = data.sourceDevice || 'unknown';
   var by = data.updatedBy || 'app';
   var clientRevision = data._revision || null;
+  var healthRevision = data._healthRevision || (data.health && data.health._revision) || null;
+  var scheduleRevision = data._scheduleRevision || (data.schedule && data.schedule._revision) || null;
 
   // --- 1. health_daily ---
   if (data.health) {
@@ -153,7 +192,7 @@ function _handleLegacyPost(data) {
       source: data.health.source || 'unknown',
       fetchedAt: data.health.fetchedAt || '',
       sourceDevice: src, updatedBy: by, updatedAt: data.updatedAt
-    }, clientRevision);
+    }, healthRevision);
   }
 
   // --- 2. schedule ---
@@ -164,10 +203,28 @@ function _handleLegacyPost(data) {
       startTime: data.schedule.startTime || '',
       endTime: data.schedule.endTime || '',
       sourceDevice: src, updatedBy: by, updatedAt: data.updatedAt
-    }, clientRevision);
+    }, scheduleRevision);
   }
 
   // --- 3. workout_details ---
+  var workoutSession = null;
+  if (data.workout) {
+    workoutSession = _saveWorkoutSession({
+      date: dateStr,
+      workoutType: data.workout.type || '',
+      status: data.workout.status || '',
+      startAt: data.workout.startAt || '',
+      startTime: data.workout.startTime || '',
+      endAt: data.workout.endAt || '',
+      endTime: data.workout.endTime || '',
+      durationMinutes: data.workout.durationMinutes,
+      feeling: data.workout.feeling,
+      memo: data.workout.memo || '',
+      skipReason: data.workout.skipReason || '',
+      sourceDevice: src, updatedBy: by, updatedAt: data.updatedAt
+    }, null);
+  }
+
   if (data.exercises && data.exercises.length > 0) {
     _appendWorkoutDetails({
       date: dateStr,
@@ -200,9 +257,8 @@ function _handleLegacyPost(data) {
       : (data.judgment.resultLabel || '');
   }
   if (data.workout) {
-    condJudgPatch.didWorkout = data.workout.type && data.workout.type !== 'skip' ? 'yes' : (data.workout.type === 'skip' ? 'skip' : '');
-    condJudgPatch.workoutType = data.workout.type || '';
-    condJudgPatch.skipReason = _normalizeSkipReason(data.workout.skipReason);
+    var sessionPatch = _workoutSummaryPatch(workoutSession || data.workout);
+    for (var spKey in sessionPatch) condJudgPatch[spKey] = sessionPatch[spKey];
   }
 
   // --- 5. daily_summary を全シートから再構築 ---
@@ -365,9 +421,108 @@ function _computeWorkoutDuration(dateStr) {
   return found ? Math.round(totalMin) : '';
 }
 
+function _workoutSessionHeaders() {
+  return [
+    'date','workoutType','status','startAt','startTime','endAt','endTime',
+    'durationMinutes','feeling','memo','skipReason',
+    'sourceDevice','updatedBy','updatedAt','revision'
+  ];
+}
+
+function _normalizeWorkoutStatus(d) {
+  var raw = String(d.status || '').trim();
+  if (raw === 'completed' || raw === 'in_progress' || raw === 'skipped' || raw === 'draft') return raw;
+  var type = d.workoutType || d.type || '';
+  if (type === 'skip') return 'skipped';
+  if (d.endAt || d.endTime) return 'completed';
+  if (Number(d.durationMinutes) > 0 && type) return 'completed';
+  if (d.startAt || d.startTime) return 'in_progress';
+  return type ? 'draft' : '';
+}
+
+function _normalizeWorkoutSession(d) {
+  d = d || {};
+  var workoutType = d.workoutType || d.type || '';
+  var startAt = d.startAt instanceof Date ? d.startAt.toISOString() : (d.startAt || '');
+  var endAt = d.endAt instanceof Date ? d.endAt.toISOString() : (d.endAt || '');
+  var status = _normalizeWorkoutStatus({
+    status: d.status,
+    workoutType: workoutType,
+    type: d.type,
+    startAt: startAt,
+    startTime: d.startTime,
+    endAt: endAt,
+    endTime: d.endTime,
+    durationMinutes: d.durationMinutes
+  });
+  return {
+    date: _normDate(d.date),
+    workoutType: workoutType,
+    status: status,
+    startAt: startAt,
+    startTime: _normTime(d.startTime) || '',
+    endAt: endAt,
+    endTime: _normTime(d.endTime) || '',
+    durationMinutes: d.durationMinutes != null && d.durationMinutes !== '' ? Number(d.durationMinutes) : '',
+    feeling: d.feeling != null && d.feeling !== '' ? Number(d.feeling) : '',
+    memo: d.memo || '',
+    skipReason: _normalizeSkipReason(d.skipReason),
+    sourceDevice: d.sourceDevice || '',
+    updatedBy: d.updatedBy || 'app',
+    updatedAt: d.updatedAt || new Date().toISOString(),
+    _revision: parseInt(d.revision || d._revision, 10) || 0
+  };
+}
+
+function _saveWorkoutSession(d, clientRevision) {
+  var session = _normalizeWorkoutSession(d);
+  if (!session.date) throw new Error('date is required for workout session');
+  var sheet = _sheetWithHeaders('workout_sessions', _workoutSessionHeaders());
+  var row = [
+    session.date, session.workoutType, session.status, session.startAt, session.startTime,
+    session.endAt, session.endTime,
+    session.durationMinutes !== '' ? session.durationMinutes : '',
+    session.feeling !== '' ? session.feeling : '',
+    session.memo, session.skipReason,
+    session.sourceDevice, session.updatedBy, session.updatedAt, 1
+  ];
+  _upsertRow(sheet, session.date, row, clientRevision);
+  return session;
+}
+
+function _readWorkoutSession(dateStr) {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('workout_sessions');
+  if (!sheet || sheet.getLastRow() <= 1) return null;
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  var idx = _findRow(sheet, dateStr);
+  if (idx <= 0) return null;
+  var row = sheet.getRange(idx, 1, 1, headers.length).getValues()[0];
+  var obj = {};
+  headers.forEach(function(h, i) { obj[h] = row[i]; });
+  return _normalizeWorkoutSession(obj);
+}
+
+function _workoutSummaryPatch(sessionInput) {
+  var session = _normalizeWorkoutSession(sessionInput || {});
+  var patch = {};
+  if (session.status === 'skipped' || session.workoutType === 'skip') {
+    patch.didWorkout = 'skip';
+  } else if (session.status === 'in_progress') {
+    patch.didWorkout = 'in_progress';
+  } else if (session.status === 'completed') {
+    patch.didWorkout = 'yes';
+  } else if (session.workoutType) {
+    patch.didWorkout = 'yes';
+  }
+  if (session.workoutType) patch.workoutType = session.workoutType;
+  if (session.durationMinutes !== '') patch.durationMinutes = session.durationMinutes;
+  if (session.skipReason !== '') patch.skipReason = session.skipReason;
+  return patch;
+}
+
 /**
  * ★ daily_summary を全シートから日付単位で再構築する。
- * schedule, health_daily, workout_details から読み取り、
+ * schedule, health_daily, workout_sessions, workout_details から読み取り、
  * condition/judgment は condJudgPatch から受け取る（個別シートがないため）。
  *
  * @param {string} dateStr - 対象日 (YYYY-MM-DD)
@@ -404,7 +559,9 @@ function _rebuildDailySummary(dateStr, src, by, updatedAt, condJudgPatch, client
     }
   }
 
-  // --- workout_details から duration を算出 ---
+  // --- workout_sessions / workout_details からワークアウト状態を取得 ---
+  var session = _readWorkoutSession(dateStr);
+  var sessionPatch = _workoutSummaryPatch(session);
   var workoutDuration = _computeWorkoutDuration(dateStr);
 
   // --- condJudgPatch に含まれない列は既存のdaily_summaryから保持 ---
@@ -425,12 +582,12 @@ function _rebuildDailySummary(dateStr, src, by, updatedAt, condJudgPatch, client
   var judgmentResult = _coalesce(condJudgPatch.judgmentResult, existing.judgmentResult);
   var judgmentScore = _coalesce(condJudgPatch.judgmentScore, existing.judgmentScore);
   var judgmentReason = condJudgPatch.judgmentReason != null ? condJudgPatch.judgmentReason : (existing.judgmentReason || '');
-  var didWorkout = condJudgPatch.didWorkout != null ? condJudgPatch.didWorkout : (existing.didWorkout || '');
-  var workoutType = condJudgPatch.workoutType != null ? condJudgPatch.workoutType : (existing.workoutType || '');
-  var skipReason = condJudgPatch.skipReason != null ? condJudgPatch.skipReason : (existing.skipReason || '');
+  var didWorkout = condJudgPatch.didWorkout != null ? condJudgPatch.didWorkout : (_coalesce(sessionPatch.didWorkout, existing.didWorkout) || '');
+  var workoutType = condJudgPatch.workoutType != null ? condJudgPatch.workoutType : (_coalesce(sessionPatch.workoutType, existing.workoutType) || '');
+  var skipReason = condJudgPatch.skipReason != null ? condJudgPatch.skipReason : (_coalesce(sessionPatch.skipReason, existing.skipReason) || '');
 
-  // durationMinutes: workout_detailsから計算 > パッチ値 > 既存値
-  var totalDuration = _coalesce(workoutDuration || null, condJudgPatch.durationMinutes, existing.totalDurationMinutes);
+  // durationMinutes: 実測セッション > workout_details推定 > 既存値
+  var totalDuration = _coalesce(condJudgPatch.durationMinutes, sessionPatch.durationMinutes, workoutDuration || null, existing.totalDurationMinutes);
 
   _saveDailySummary({
     date: dateStr,
@@ -638,6 +795,7 @@ function _bulkSchedule(data) {
       data.sourceDevice || '', 'bulk', now, 1
     ];
     _upsertRow(sheet, s.date, row);
+    _rebuildDailySummary(s.date, data.sourceDevice || '', 'bulk', now, {}, null);
     count++;
   }
   
@@ -652,6 +810,10 @@ function _deleteWorkout(data) {
   // workout_details を日付で全削除
   var wdSheet = _sheet('workout_details');
   _deleteRowsByDate(wdSheet, dateStr);
+
+  // workout_sessions も日付で削除し、別端末のタイマー復元を止める
+  var wsSheet = _sheetWithHeaders('workout_sessions', _workoutSessionHeaders());
+  _deleteRowsByDate(wsSheet, dateStr);
   
   // tombstone記録
   _addTombstone(dateStr, 'workout', data.sourceDevice || '', data.updatedAt);
@@ -783,11 +945,18 @@ function _getAll() {
           resultLabel: obj.judgmentReason || ''
         };
       }
-      // workoutデータ
-      if (obj.didWorkout === 'yes' || obj.didWorkout === true) {
+      // workoutデータ。詳細な開始/終了時刻は workout_sessions があれば後で上書きする。
+      if (!_isBlankCell(obj.didWorkout) || !_isBlankCell(obj.workoutType)) {
+        var workoutStatus = obj.didWorkout === 'skip'
+          ? 'skipped'
+          : (obj.didWorkout === 'in_progress' ? 'in_progress' : (obj.didWorkout === 'yes' || obj.didWorkout === true ? 'completed' : 'draft'));
         byDate[d].workout = {
           date: d,
-          type: obj.workoutType || 'full'
+          type: obj.workoutType || (obj.didWorkout === 'skip' ? 'skip' : 'full'),
+          status: workoutStatus,
+          durationMinutes: _numberOrNull(obj.totalDurationMinutes) || 0,
+          skipReason: obj.skipReason || '',
+          memo: obj.memo || ''
         };
       }
       // daily_summary の revision (最大値を使用)
@@ -796,6 +965,40 @@ function _getAll() {
       }
       if (obj.updatedAt && _safeDateTs(obj.updatedAt) > _safeDateTs(byDate[d].updatedAt)) {
         byDate[d].updatedAt = obj.updatedAt;
+      }
+    }
+  }
+
+  // --- workout_sessions -> タイマー/実測時間メタデータ ---
+  var sessionSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('workout_sessions');
+  if (sessionSheet && sessionSheet.getLastRow() > 1) {
+    sessionSheet = _sheetWithHeaders('workout_sessions', _workoutSessionHeaders());
+    var sessionHeaders = sessionSheet.getRange(1, 1, 1, sessionSheet.getLastColumn()).getValues()[0];
+    var sessionRows = sessionSheet.getRange(2, 1, sessionSheet.getLastRow() - 1, sessionSheet.getLastColumn()).getValues();
+    for (var si = 0; si < sessionRows.length; si++) {
+      var sessionRaw = {};
+      sessionHeaders.forEach(function(h, idx) { sessionRaw[h] = sessionRows[si][idx]; });
+      var session = _normalizeWorkoutSession(sessionRaw);
+      var sd = session.date;
+      if (!sd) continue;
+      if (!byDate[sd]) byDate[sd] = { date: sd };
+      byDate[sd].workout = {
+        date: sd,
+        type: session.workoutType || (session.status === 'skipped' ? 'skip' : 'full'),
+        status: session.status,
+        startAt: session.startAt || '',
+        startTime: session.startTime || '',
+        endAt: session.endAt || '',
+        endTime: session.endTime || '',
+        durationMinutes: session.durationMinutes !== '' ? session.durationMinutes : 0,
+        feeling: session.feeling !== '' ? session.feeling : null,
+        memo: session.memo || '',
+        skipReason: session.skipReason || '',
+        updatedAt: session.updatedAt || '',
+        _revision: session._revision || 0
+      };
+      if (session.updatedAt && _safeDateTs(session.updatedAt) > _safeDateTs(byDate[sd].updatedAt)) {
+        byDate[sd].updatedAt = session.updatedAt;
       }
     }
   }
@@ -926,10 +1129,10 @@ function _getAll() {
 
 function _getDate(dateStr) {
   if (!dateStr) throw new Error('date required');
-  var rawSheet = _sheet('RawData');
-  var idx = _findRow(rawSheet, dateStr);
-  if (idx > -1) {
-    return _normalizePayload(JSON.parse(rawSheet.getRange(idx, 2).getValue()));
+  var target = _normDate(dateStr);
+  var items = _getAll();
+  for (var i = 0; i < items.length; i++) {
+    if (_normDate(items[i].date) === target) return items[i];
   }
   return null;
 }

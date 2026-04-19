@@ -63,6 +63,7 @@
   };
 
   const WORKOUT_TIMER_START_KEY = 'steady_workout_timer_start';
+  const WORKOUT_TIMER_DATE_KEY = 'steady_workout_timer_date';
   let workoutTimer = null;
   let workoutStartTime = (() => {
     const saved = Number(localStorage.getItem(WORKOUT_TIMER_START_KEY));
@@ -83,6 +84,63 @@
     }
     workoutStartTime = null;
     localStorage.removeItem(WORKOUT_TIMER_START_KEY);
+    localStorage.removeItem(WORKOUT_TIMER_DATE_KEY);
+  }
+
+  function timerTimeLabel(timestamp) {
+    if (!timestamp) return '';
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toTimeString().slice(0, 5);
+  }
+
+  function timerDateLabel(timestamp) {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '';
+    return App.Utils?._localDateStr ? App.Utils._localDateStr(date) : date.toISOString().slice(0, 10);
+  }
+
+  function setWorkoutTimerStart(timestamp, dateStr = null) {
+    const value = Number(timestamp);
+    if (!Number.isFinite(value) || value <= 0) return;
+    workoutStartTime = value;
+    localStorage.setItem(WORKOUT_TIMER_START_KEY, String(value));
+    localStorage.setItem(WORKOUT_TIMER_DATE_KEY, dateStr || timerDateLabel(value));
+  }
+
+  function savedWorkoutTimerForDate(dateStr) {
+    const saved = Number(localStorage.getItem(WORKOUT_TIMER_START_KEY));
+    if (!Number.isFinite(saved) || saved <= 0) return null;
+    const savedDate = localStorage.getItem(WORKOUT_TIMER_DATE_KEY) || timerDateLabel(saved);
+    return savedDate === dateStr ? saved : null;
+  }
+
+  function parseWorkoutStart(workout) {
+    if (!workout) return null;
+    const startAt = workout.startAt ? Date.parse(workout.startAt) : NaN;
+    if (Number.isFinite(startAt) && startAt > 0) return startAt;
+    if (workout.date && workout.startTime && /^\d{1,2}:\d{2}$/.test(String(workout.startTime))) {
+      const t = Date.parse(`${workout.date}T${String(workout.startTime).padStart(5, '0')}:00`);
+      if (Number.isFinite(t) && t > 0) return t;
+    }
+    return null;
+  }
+
+  function workoutIsFinished(workout) {
+    if (!workout) return false;
+    return workout.type === 'skip' ||
+      workout.status === 'completed' ||
+      workout.status === 'skipped' ||
+      !!workout.endAt ||
+      !!workout.endTime;
+  }
+
+  function timerDisplayText() {
+    if (!workoutStartTime) return '00:00';
+    const seconds = Math.max(0, Math.floor((Date.now() - workoutStartTime) / 1000));
+    const minutes = Math.floor(seconds / 60);
+    const remain = seconds % 60;
+    return `${String(minutes).padStart(2, '0')}:${String(remain).padStart(2, '0')}`;
   }
 
   function h(value) {
@@ -943,7 +1001,7 @@
         };
 
         await App.Judgment.judgeAndSave(today, overrides);
-        const pushResult = await App.DB.pushToCloud(today);
+        const pushResult = await App.DB.pushToCloud(today, { sections: ['condition', 'judgment'] });
 
         await App.Utils.showSharedSaveResult(pushResult, {
           subject: '判定結果',
@@ -974,7 +1032,7 @@
         ...existing,
         userOverride: newResult
       });
-      const pushResult = await App.DB.pushToCloud(today);
+      const pushResult = await App.DB.pushToCloud(today, { sections: ['judgment'] });
       await App.Utils.showSharedSaveResult(pushResult, {
         subject: '判定変更',
         successMessage: `判定を「${App.Judgment.RESULT_LABELS[newResult]}」へ変更しました`,
@@ -1210,9 +1268,9 @@
       </article>`;
   }
 
-  async function hydrateExerciseHistory(exercises, menuType, beforeDate) {
+  async function hydrateExerciseHistory(exercises, menuType, beforeDate, condition = null) {
     if (!Array.isArray(exercises) || !exercises.length || !menuType) return false;
-    const generated = await App.Training.generateMenu(menuType, { beforeDate });
+    const generated = await App.Training.generateMenu(menuType, { beforeDate, condition });
     const queues = new Map();
     generated.forEach(seed => {
       if (!queues.has(seed.name)) queues.set(seed.name, []);
@@ -1253,10 +1311,11 @@
 
     async render() {
       const today = App.Utils.today();
-      const [judgment, schedule, existingWorkout] = await Promise.all([
+      const [judgment, schedule, existingWorkout, condition] = await Promise.all([
         App.DB.getJudgment(today),
         App.DB.getSchedule(today),
-        App.DB.getWorkoutByDate(today)
+        App.DB.getWorkoutByDate(today),
+        App.DB.getCondition(today)
       ]);
 
       currentExercises = [];
@@ -1265,13 +1324,23 @@
       const chosenResult = resultValue(judgment) || (existingWorkout?.type === 'skip' ? 5 : 2);
       currentWorkoutType = this._manualMenuType || (existingWorkout?.type && existingWorkout.type !== 'skip' ? existingWorkout.type : App.Training.getMenuType(chosenResult));
 
+      this._syncTimerFromWorkout(existingWorkout, today);
+
       if (existingWorkout) {
         currentWorkoutId = existingWorkout.id;
         if (existingWorkout.type === currentWorkoutType) {
           const savedExercises = await App.DB.getExercises(existingWorkout.id);
           if (savedExercises.length > 0) {
             currentExercises = savedExercises;
-            await hydrateExerciseHistory(currentExercises, currentWorkoutType, today);
+            await hydrateExerciseHistory(currentExercises, currentWorkoutType, today, condition);
+            const filtered = App.Training.filterExercisesForCondition(currentExercises, condition);
+            if (filtered.removed.length > 0) {
+              currentExercises = filtered.exercises;
+              await App.DB.saveExercises(currentWorkoutId, currentExercises);
+              App.DB.pushToCloud(today, { sections: ['workout', 'exercises'] }).catch(error => {
+                console.warn('[Workout] Failed to push soreness-adjusted draft:', error);
+              });
+            }
           }
         }
       }
@@ -1287,7 +1356,7 @@
       }
 
       if (currentExercises.length === 0 && currentWorkoutType) {
-        currentExercises = await App.Training.generateMenu(currentWorkoutType, { beforeDate: today });
+        currentExercises = await App.Training.generateMenu(currentWorkoutType, { beforeDate: today, condition });
       }
 
       if (currentWorkoutType === 'stretch') {
@@ -1299,8 +1368,12 @@
       const menuConfig = App.Training.MENU_CONFIGS[currentWorkoutType];
       const progress = workoutProgress(currentExercises);
       const estimated = menuConfig?.estimatedMin || App.Training.getEstimatedDuration(currentWorkoutType);
-      const isCompleted = !!existingWorkout?.endTime;
+      const isCompleted = workoutIsFinished(existingWorkout);
       const footerLabel = isCompleted ? '記録を更新する' : '今日はここまでで終了';
+      const soreness = App.Training.sorenessContext(condition || {});
+      const sorenessNote = soreness.active
+        ? `<div class="reboot-empty-card reboot-soreness-note"><strong>筋肉痛部位を避けています</strong><span>${h(soreness.areas.join('、'))}にかかる種目は外しました。</span></div>`
+        : '';
 
       return `
         <div class="container animate-in reboot-shell reboot-workout-shell">
@@ -1317,6 +1390,7 @@
 
           <div class="reboot-workout-grid">
             <div class="reboot-main-stack">
+              ${sorenessNote}
               <section class="reboot-panel reboot-session-panel">
                 <div class="reboot-session-top">
                   <div>
@@ -1329,7 +1403,7 @@
                     <p>${h(judgment?.message || '未判定でも短縮メニューから始められます。')}</p>
                   </div>
                   <div class="reboot-timer-box">
-                    <div class="reboot-timer-display" id="workout-timer-display">${workoutStartTime ? (() => { const s = Math.max(0, Math.floor((Date.now() - workoutStartTime) / 1000)); return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0'); })() : '00:00'}</div>
+                    <div class="reboot-timer-display" id="workout-timer-display">${timerDisplayText()}</div>
                     <button class="btn ${workoutStartTime ? 'btn-danger' : 'btn-primary'}" id="workout-timer-toggle">${workoutStartTime ? '一時停止' : '開始'}</button>
                   </div>
                 </div>
@@ -1571,6 +1645,27 @@
       });
     },
 
+    _syncTimerFromWorkout(workout, dateStr) {
+      if (workoutIsFinished(workout)) {
+        clearWorkoutTimerState();
+        return;
+      }
+
+      const cloudStart = parseWorkoutStart(workout);
+      if (cloudStart) {
+        setWorkoutTimerStart(cloudStart, dateStr);
+        return;
+      }
+
+      const savedStart = savedWorkoutTimerForDate(dateStr);
+      if (savedStart) {
+        setWorkoutTimerStart(savedStart, dateStr);
+        return;
+      }
+
+      clearWorkoutTimerState();
+    },
+
     _refreshProgress() {
       const progress = workoutProgress(currentExercises);
       const required = document.getElementById('workout-progress-required');
@@ -1601,20 +1696,29 @@
       const today = App.Utils.today();
       this._updateDraftStatus('下書き保存中');
       if (!currentWorkoutId) {
+        const startAt = workoutStartTime ? new Date(workoutStartTime).toISOString() : '';
         currentWorkoutId = await App.DB.saveWorkout({
           date: today,
           type: currentWorkoutType || 'custom',
-          startTime: workoutStartTime ? new Date(workoutStartTime).toTimeString().slice(0, 5) : '',
+          status: startAt ? 'in_progress' : 'draft',
+          startAt,
+          startTime: workoutStartTime ? timerTimeLabel(workoutStartTime) : '',
+          endAt: '',
           endTime: ''
         });
       } else {
         const existing = await App.DB.getWorkout(currentWorkoutId);
+        const startAt = existing?.startAt || (workoutStartTime ? new Date(workoutStartTime).toISOString() : '');
+        const ended = !!(existing?.endAt || existing?.endTime || existing?.status === 'completed');
         await App.DB.saveWorkout({
           ...(existing || {}),
           id: currentWorkoutId,
           date: today,
           type: currentWorkoutType || existing?.type || 'custom',
-          startTime: existing?.startTime || (workoutStartTime ? new Date(workoutStartTime).toTimeString().slice(0, 5) : ''),
+          status: ended ? (existing?.status || 'completed') : (startAt ? 'in_progress' : (existing?.status || 'draft')),
+          startAt,
+          startTime: existing?.startTime || (workoutStartTime ? timerTimeLabel(workoutStartTime) : ''),
+          endAt: existing?.endAt || '',
           endTime: existing?.endTime || ''
         });
       }
@@ -1646,7 +1750,7 @@
       workoutCloudSaveInFlight = true;
       this._updateDraftStatus('同期中');
       try {
-        const result = await App.DB.pushToCloud(dateStr);
+        const result = await App.DB.pushToCloud(dateStr, { sections: ['workout', 'exercises'] });
         if (result.ok) {
           this._updateDraftStatus('同期済み');
         } else if (result.error === 'Sync URL未設定') {
@@ -1797,7 +1901,7 @@
       if (bar) bar.style.display = 'none';
     },
 
-    _toggleTimer() {
+    async _toggleTimer() {
       const button = document.getElementById('workout-timer-toggle');
       if (!button) return;
 
@@ -1811,23 +1915,26 @@
       }
 
       if (!workoutStartTime) {
-        workoutStartTime = Date.now();
-        localStorage.setItem(WORKOUT_TIMER_START_KEY, String(workoutStartTime));
+        setWorkoutTimerStart(Date.now(), App.Utils.today());
       }
       workoutTimer = setInterval(() => this._updateTimerDisplay(), 1000);
       button.classList.remove('btn-primary');
       button.classList.add('btn-danger');
       button.textContent = '一時停止';
       this._updateTimerDisplay();
+      button.disabled = true;
+      try {
+        await this._persistWorkoutDraft();
+        await this._flushCloudSave(App.Utils.today());
+      } finally {
+        button.disabled = false;
+      }
     },
 
     _updateTimerDisplay() {
       const slot = document.getElementById('workout-timer-display');
       if (!slot || !workoutStartTime) return;
-      const seconds = Math.max(0, Math.floor((Date.now() - workoutStartTime) / 1000));
-      const minutes = Math.floor(seconds / 60);
-      const remain = seconds % 60;
-      slot.textContent = `${String(minutes).padStart(2, '0')}:${String(remain).padStart(2, '0')}`;
+      slot.textContent = timerDisplayText();
     },
 
     async _finishWorkout() {
@@ -1891,21 +1998,27 @@
         try {
           const feeling = safeNumber(document.querySelector('[data-finish-feeling].selected')?.dataset.finishFeeling, 3);
           const memo = document.getElementById('finish-memo')?.value.trim() || '';
-          const durationMinutes = workoutStartTime ? Math.max(1, Math.round((Date.now() - workoutStartTime) / 60000)) : 0;
-          const endTime = new Date().toTimeString().slice(0, 5);
+          const existing = currentWorkoutId ? await App.DB.getWorkout(currentWorkoutId) : null;
+          const startMs = workoutStartTime || parseWorkoutStart(existing) || Date.now();
+          const endAt = new Date().toISOString();
+          const durationMinutes = startMs ? Math.max(1, Math.round((Date.now() - startMs) / 60000)) : 0;
+          const endTime = timerTimeLabel(Date.now());
 
           currentWorkoutId = await App.DB.saveWorkout({
             id: currentWorkoutId,
             date: App.Utils.today(),
             type: currentWorkoutType || 'custom',
-            startTime: workoutStartTime ? new Date(workoutStartTime).toTimeString().slice(0, 5) : '',
+            status: 'completed',
+            startAt: existing?.startAt || new Date(startMs).toISOString(),
+            startTime: existing?.startTime || timerTimeLabel(startMs),
+            endAt,
             endTime,
             durationMinutes,
             feeling,
             memo
           }, currentExercises);
 
-          const pushResult = await App.DB.pushToCloud(App.Utils.today());
+          const pushResult = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout', 'exercises'] });
           close();
           await App.Utils.showSharedSaveResult(pushResult, {
             subject: 'ワークアウト記録',
@@ -1966,13 +2079,16 @@
             id: currentWorkoutId,
             date: App.Utils.today(),
             type: 'skip',
+            status: 'skipped',
+            endAt: new Date().toISOString(),
+            endTime: timerTimeLabel(Date.now()),
             skipReason: reasons.join(', '),
             memo,
             feeling: 0,
             durationMinutes: 0
           });
 
-          const pushResult = await App.DB.pushToCloud(App.Utils.today());
+          const pushResult = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout'] });
           close();
           await App.Utils.showSharedSaveResult(pushResult, {
             subject: '休み記録',
@@ -2008,11 +2124,16 @@
             id: currentWorkoutId,
             date: App.Utils.today(),
             type: 'stretch',
+            status: 'completed',
+            startAt: workoutStartTime ? new Date(workoutStartTime).toISOString() : '',
+            startTime: workoutStartTime ? timerTimeLabel(workoutStartTime) : '',
+            endAt: new Date().toISOString(),
+            endTime: timerTimeLabel(Date.now()),
             feeling: 4,
             memo: 'ストレッチ完了',
             durationMinutes: 10
           });
-          const pushResult = await App.DB.pushToCloud(App.Utils.today());
+          const pushResult = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout'] });
           await App.Utils.showSharedSaveResult(pushResult, {
             subject: 'ストレッチ記録',
             successMessage: 'ストレッチを保存しました',
@@ -2375,7 +2496,7 @@
         };
 
         await App.DB.upsertSchedule(payload);
-        const pushResult = await App.DB.pushToCloud(this._selectedDate);
+        const pushResult = await App.DB.pushToCloud(this._selectedDate, { sections: ['schedule'] });
         await App.Utils.showSharedSaveResult(pushResult, {
           subject: '勤務データ',
           successMessage: '勤務を保存しました',
@@ -2986,7 +3107,7 @@
             restingHeartRate: parseNullableNumber('h-resting-heartrate'),
             calories: calories || null
           });
-          const pushRes = await App.DB.pushToCloud(date);
+          const pushRes = await App.DB.pushToCloud(date, { sections: ['health'] });
           await App.Utils.rememberHealthPushResult(pushRes, {
             dateStr: date,
             source: 'manual'

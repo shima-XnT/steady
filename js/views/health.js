@@ -313,7 +313,7 @@
           await App.DB.upsertHealth(data);
 
           // クラウドPush（結果を待つ）
-          const pushRes = await App.DB.pushToCloud(date);
+          const pushRes = await App.DB.pushToCloud(date, { sections: ['health'] });
           btn.textContent = '💾 保存する';
           btn.disabled = false;
           if (pushRes.ok) {

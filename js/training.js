@@ -102,6 +102,22 @@
     adduction: { role: 'assist', maxSets: 3 }
   };
 
+  const EXERCISE_BODY_AREAS = {
+    leg_press: ['脚'],
+    lat_pulldown: ['背中', '腕'],
+    chest_press: ['胸', '肩', '腕'],
+    shoulder_press: ['肩', '腕'],
+    biceps_curl: ['腕'],
+    dips: ['胸', '肩', '腕'],
+    ab_bench: ['体幹'],
+    adduction: ['脚']
+  };
+
+  const EXERCISE_ID_BY_NAME = EQUIPMENT.reduce((map, item) => {
+    map[item.name] = item.id;
+    return map;
+  }, {});
+
   function num(value, fallback = 0) {
     const n = Number(value);
     return Number.isFinite(n) ? n : fallback;
@@ -114,6 +130,42 @@
   function roundToStep(value, step = PROGRESSION.weightStep) {
     if (!step) return Math.max(0, value);
     return Math.max(0, Math.round(value / step) * step);
+  }
+
+  function parseSorenessAreas(value) {
+    if (Array.isArray(value)) return value.map(String).map(v => v.trim()).filter(Boolean);
+    return String(value || '')
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean);
+  }
+
+  function sorenessContext(condition = {}) {
+    const level = num(condition.muscleSoreness, 0);
+    const areas = parseSorenessAreas(condition.sorenessAreas);
+    return {
+      active: level >= 2 && areas.length > 0,
+      level,
+      areas,
+      areaSet: new Set(areas)
+    };
+  }
+
+  function equipmentIdFor(item) {
+    return item?.id || item?.equipmentId || EXERCISE_ID_BY_NAME[item?.name] || '';
+  }
+
+  function blockedAreasFor(item, context) {
+    if (!context.active) return [];
+    const id = equipmentIdFor(item);
+    const areas = EXERCISE_BODY_AREAS[id] || [];
+    return areas.filter(area => context.areaSet.has(area));
+  }
+
+  function shouldAvoidForSoreness(item, context) {
+    const id = equipmentIdFor(item);
+    if (!id || id === 'treadmill') return false;
+    return blockedAreasFor(item, context).length > 0;
   }
 
   function profileFor(equipment, flags, defaults) {
@@ -209,6 +261,34 @@
     DEFAULTS,
     MENU_CONFIGS,
 
+    sorenessContext,
+
+    isBlockedBySoreness(exercise, condition) {
+      return shouldAvoidForSoreness(exercise, sorenessContext(condition));
+    },
+
+    filterExercisesForCondition(exercises, condition) {
+      const context = sorenessContext(condition);
+      if (!context.active || !Array.isArray(exercises)) {
+        return { exercises: Array.isArray(exercises) ? exercises : [], removed: [] };
+      }
+
+      const removed = [];
+      const filtered = exercises.filter(exercise => {
+        if (!shouldAvoidForSoreness(exercise, context)) return true;
+        const sets = Array.isArray(exercise.sets) ? exercise.sets : [];
+        const alreadyCompleted = sets.length > 0 && sets.every(set => set.completed);
+        if (alreadyCompleted) return true;
+        removed.push({
+          name: exercise.name,
+          areas: blockedAreasFor(exercise, context)
+        });
+        return false;
+      });
+
+      return { exercises: filtered, removed };
+    },
+
     /**
      * 判定結果に基づいてメニュー種別を返す
      */
@@ -231,6 +311,7 @@
     async generateMenu(menuType, options = {}) {
       const config = MENU_CONFIGS[menuType];
       if (!config) return [];
+      const soreness = sorenessContext(options.condition || {});
 
       // ストレッチメニューは特別
       if (menuType === 'stretch') {
@@ -262,6 +343,7 @@
       for (const id of config.main) {
         const eq = EQUIPMENT.find(e => e.id === id);
         if (!eq) continue;
+        if (shouldAvoidForSoreness(eq, soreness)) continue;
         const history = await historyFor(eq.name);
         exercises.push(this._buildExercise(eq, history, { menuType, today: beforeDate }));
       }
@@ -270,6 +352,7 @@
       for (const id of config.optional) {
         const eq = EQUIPMENT.find(e => e.id === id);
         if (!eq) continue;
+        if (shouldAvoidForSoreness(eq, soreness)) continue;
         const history = await historyFor(eq.name);
         exercises.push(this._buildExercise(eq, history, { optional: true, menuType, today: beforeDate }));
       }

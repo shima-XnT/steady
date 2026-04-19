@@ -787,6 +787,13 @@ body {
   color: var(--reboot-text-soft);
 }
 
+.reboot-mini-stat strong,
+.reboot-workout-detail-main span {
+  line-height: 1.25;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
 .reboot-complete-box {
   min-width: 74px;
   padding: 12px;
@@ -1520,6 +1527,22 @@ body {
   .reboot-home-shortcuts {
     gap: 10px;
   }
+
+  .reboot-exercise-card .reboot-metric-grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .reboot-set-inputs {
+    grid-template-columns: minmax(72px, 1fr) 24px minmax(72px, 1fr) 24px;
+  }
+
+  .reboot-cardio-inputs {
+    grid-template-columns: minmax(112px, 1fr) 28px;
+  }
+
+  .reboot-set-inputs .form-input {
+    padding: 10px;
+  }
 }
 
 @media (max-width: 390px) {
@@ -1535,5 +1558,19 @@ body {
     min-height: 32px;
     padding: 0 10px;
     font-size: 0.78rem;
+  }
+
+  .reboot-set-inputs {
+    grid-template-columns: minmax(68px, 1fr) 20px minmax(68px, 1fr) 20px;
+    gap: 6px;
+  }
+
+  .reboot-cardio-inputs {
+    grid-template-columns: minmax(104px, 1fr) 24px;
+  }
+
+  .reboot-set-inputs .form-input {
+    padding: 10px 8px;
+    font-size: 1rem;
   }
 }

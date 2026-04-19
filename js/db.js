@@ -451,11 +451,15 @@
 
       // ローカルに保存している revision を取得（conflict検出用）
       const revision = await this.getSetting(`_rev_${dateStr}`, 0);
+      const scheduleRevision = await this.getSetting(`_rev_sched_${dateStr}`, 0);
+      const healthRevision = await this.getSetting(`_rev_health_${dateStr}`, 0);
 
       return {
         date: dateStr,
         updatedAt: maxUpdate,
         _revision: parseInt(revision) || 0,
+        _scheduleRevision: parseInt(scheduleRevision) || schedule?._revision || 0,
+        _healthRevision: parseInt(healthRevision) || health?._revision || 0,
         schedule,
         workout,
         exercises,
@@ -472,10 +476,17 @@
           delete s.id;
           await this.upsertSchedule(s);
         }
-        if (data.workout) {
+        const hasRemoteExercises = Array.isArray(data.exercises) && data.exercises.length > 0;
+        const workoutPayload = data.workout || (hasRemoteExercises ? {
+          date: data.date,
+          type: data.workoutType || data.exercises[0]?.workoutType || 'full',
+          status: 'completed'
+        } : null);
+
+        if (workoutPayload) {
           const existing = await db.workouts.where('date').equals(data.date).first();
           let workoutId = existing ? existing.id : null;
-          const w = { ...data.workout };
+          const w = { ...workoutPayload, date: data.date };
           delete w.id;
           if (existing) {
             await db.workouts.update(existing.id, w);
@@ -511,6 +522,33 @@
       });
     },
 
+    _pushPayloadForSections(data, sections = null) {
+      if (!sections || sections === 'all') return data;
+      const allowed = new Set(sections);
+      return {
+        date: data.date,
+        updatedAt: data.updatedAt,
+        _revision: data._revision,
+        _scheduleRevision: data._scheduleRevision,
+        _healthRevision: data._healthRevision,
+        schedule: allowed.has('schedule') ? data.schedule : null,
+        workout: allowed.has('workout') ? data.workout : null,
+        exercises: allowed.has('exercises') ? (data.exercises || []) : [],
+        health: allowed.has('health') ? data.health : null,
+        condition: allowed.has('condition') ? data.condition : null,
+        judgment: allowed.has('judgment') ? data.judgment : null
+      };
+    },
+
+    async _restorePushedSections(payload, sections = null) {
+      if (!sections || sections === 'all') return;
+      const restore = this._pushPayloadForSections(payload, sections);
+      await this.putDateSync({
+        ...restore,
+        _fromSync: true
+      });
+    },
+
     // ============ Cloud Push ============
 
 
@@ -519,7 +557,7 @@
      * @param {string} dateStr - 対象日
      * @returns {{ ok: boolean, conflict?: boolean, error?: string }}
      */
-    async pushToCloud(dateStr) {
+    async pushToCloud(dateStr, options = {}) {
       if (!window.App?.Sync?.SheetSyncManager?.hasUrl()) {
         return { ok: false, error: 'Sync URL未設定' };
       }
@@ -531,7 +569,8 @@
       }
 
       try {
-        const data = await this.getDateSyncData(dateStr);
+        const sections = options.sections || null;
+        const data = this._pushPayloadForSections(await this.getDateSyncData(dateStr), sections);
         data.sourceDevice = window.SteadyBridge ? 'android' : 'pc';
         const res = await window.App.Sync.SheetSyncManager.pushData(data);
         if (res.ok) {
@@ -545,10 +584,20 @@
           try {
             await window.App.Sync.SheetSyncManager.syncAll();
             // リビジョンが更新されたので再送
-            const data2 = await this.getDateSyncData(dateStr);
+            const freshData = this._pushPayloadForSections(await this.getDateSyncData(dateStr), sections);
+            const data2 = {
+              ...freshData,
+              schedule: data.schedule || freshData.schedule,
+              workout: data.workout || freshData.workout,
+              exercises: sections && sections !== 'all' && !sections.includes('exercises') ? freshData.exercises : data.exercises,
+              health: data.health || freshData.health,
+              condition: data.condition || freshData.condition,
+              judgment: data.judgment || freshData.judgment
+            };
             data2.sourceDevice = window.SteadyBridge ? 'android' : 'pc';
             const res2 = await window.App.Sync.SheetSyncManager.pushData(data2);
             if (res2.ok) {
+              await this._restorePushedSections(data2, sections);
               await this.removePendingDate(dateStr);
               await this.setSetting('_lastSyncAt', new Date().toISOString());
               console.log(`[Sync] Conflict auto-resolved for ${dateStr}`);

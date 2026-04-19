@@ -367,7 +367,7 @@
         }
 
         // クラウドPush（結果を待つ）
-        const pushRes = await App.DB.pushToCloud(today);
+        const pushRes = await App.DB.pushToCloud(today, { sections: ['condition', 'judgment'] });
         if (judgeBtn) { judgeBtn.disabled = false; judgeBtn.textContent = '🔍 今日の判定をする'; }
         if (pushRes.ok) {
           App.Utils.showToast('判定完了 ✅', 'success');
@@ -394,7 +394,7 @@
           resultArea.innerHTML = this._renderResult(updated);
         }
         // Push結果を待つ
-        const pushRes = await App.DB.pushToCloud(today);
+        const pushRes = await App.DB.pushToCloud(today, { sections: ['judgment'] });
         if (pushRes.ok) {
           App.Utils.showToast(`${App.Judgment.RESULT_LABELS[newResult]}に変更 ✅`, 'success');
         } else {

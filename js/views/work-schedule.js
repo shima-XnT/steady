@@ -226,7 +226,7 @@
               endTime: shiftType === 'off' ? '' : document.getElementById('modal-end-time').value,
               note: document.getElementById('modal-note').value
             });
-            const pushRes = await App.DB.pushToCloud(dateStr);
+            const pushRes = await App.DB.pushToCloud(dateStr, { sections: ['schedule'] });
             close();
             if (pushRes.ok) {
               App.Utils.showToast('保存しました ✅', 'success');

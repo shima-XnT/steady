@@ -380,7 +380,7 @@
             feeling: 0,
             durationMinutes: 0
           });
-          const pushRes = await App.DB.pushToCloud(App.Utils.today());
+          const pushRes = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout'] });
           close();
           if (pushRes.ok) {
             App.Utils.showToast('記録しました。ゆっくり休んでください 🌙', 'info');
@@ -433,7 +433,7 @@
               feeling: 4, memo: 'ストレッチ完了',
               durationMinutes: 10
             });
-            const pushRes = await App.DB.pushToCloud(App.Utils.today());
+            const pushRes = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout'] });
             if (pushRes.ok) {
               App.Utils.showToast('お疲れさまでした！ゆっくり休みましょう 🧘', 'success');
             } else {
@@ -557,7 +557,7 @@
           }
 
           // クラウドPush（結果を待つ）
-          const pushRes = await App.DB.pushToCloud(App.Utils.today());
+          const pushRes = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout', 'exercises'] });
 
           currentWorkoutId = null;
           currentExercises = [];

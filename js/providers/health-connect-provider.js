@@ -139,7 +139,7 @@
 
       await App.DB.upsertHealth(healthData);
 
-      const pushResult = await App.DB.pushToCloud(dateStr);
+      const pushResult = await App.DB.pushToCloud(dateStr, { sections: ['health'] });
       await App.Utils.rememberHealthPushResult(pushResult, {
         dateStr,
         fetchedAt,
