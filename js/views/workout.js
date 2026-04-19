@@ -94,10 +94,10 @@
             }).join('')}
           </div>` : ''}
 
-          <!-- 余裕があれば -->
+          <!-- 追加 -->
           ${optionalExercises.length > 0 ? `
           <div class="section-title mt-16" style="display:flex;align-items:center;gap:6px;">
-            <span class="badge badge-optional">任意</span> 余裕があれば
+            <span class="badge badge-optional">任意</span> 追加
           </div>
           <div id="exercise-list-optional">
             ${optionalExercises.map((ex, idx) => {
@@ -214,10 +214,9 @@
           <div class="card text-center" style="padding:40px;">
             <div style="font-size:3rem;">😴</div>
             <h3 class="mt-12">今日は休養日です</h3>
-            <p class="text-secondary mt-8">休むことも、続けるための大切なステップです。</p>
+            <p class="text-secondary mt-8">今日は調整日として記録します。</p>
             <p class="text-muted text-sm mt-12">
-              「休む判断ができること」が継続の秘訣です。<br>
-              明日に向けてゆっくり回復しましょう。
+              理由を残して、次回の判断に使います。
             </p>
             <button class="btn btn-secondary mt-20" onclick="App.Views.Workout.saveSkip()">
               📝 スキップを記録する
@@ -354,7 +353,7 @@
         <div class="form-group">
           <div class="form-label">スキップ理由（任意）</div>
           <div class="flex-col gap-4">
-            ${['疲労', '体調不良', '仕事が忙しかった', '時間がなかった', '気分が乗らなかった', 'その他'].map(r => `
+            ${['コンディション調整', '体調都合', '仕事が長引いた', '時間不足', '集中度調整', 'その他'].map(r => `
               <div class="chip" onclick="this.classList.toggle('active')" data-reason="${r}">${r}</div>`).join('')}
           </div>
         </div>
@@ -435,7 +434,7 @@
             });
             const pushRes = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout'] });
             if (pushRes.ok) {
-              App.Utils.showToast('お疲れさまでした！ゆっくり休みましょう 🧘', 'success');
+              App.Utils.showToast('記録しました', 'success');
             } else {
               App.Utils.showToast('⚠️ 未送信（オンライン復帰時に再送）', 'warning');
             }
@@ -490,11 +489,11 @@
           <div class="form-label">今日のトレーニングはどうでしたか？</div>
           <div class="emoji-selector" id="finish-feeling">
             ${[
-              ['😣', 'きつかった'],
-              ['😐', 'まあまあ'],
-              ['🙂', '普通'],
-              ['😊', '良い感じ'],
-              ['🤩', '最高！']
+              ['△', '重め'],
+              ['○', '調整'],
+              ['○', '標準'],
+              ['◎', '良好'],
+              ['◎', '高め']
             ].map((e, i) => `
               <div class="emoji-option ${i === 2 ? 'selected' : ''}" data-value="${i+1}">
                 <span class="emoji">${e[0]}</span>
@@ -565,7 +564,7 @@
 
           close();
           if (pushRes.ok) {
-            App.Utils.showToast('お疲れさまでした！素晴らしい 💪', 'success');
+            App.Utils.showToast('記録しました', 'success');
           } else {
             App.Utils.showToast('⚠️ 未送信（オンライン復帰時に再送）', 'warning');
           }

@@ -265,10 +265,10 @@
     // 挨拶文
     getGreeting() {
       const h = new Date().getHours();
-      if (h < 6) return 'お疲れさまです 🌙';
+      if (h < 6) return '今日は軽め設定です';
       if (h < 12) return 'おはようございます ☀️';
       if (h < 18) return 'こんにちは 🌤';
-      return 'お疲れさまです 🌙';
+      return '今日の記録';
     },
 
     // エスケープ

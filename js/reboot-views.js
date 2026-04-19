@@ -6,47 +6,47 @@
 
   const CONDITION_OPTIONS = {
     fatigue: {
-      label: '疲労感',
-      helper: '仕事終わりの体の重さを基準に選びます。',
+      label: 'コンディション',
+      helper: '今日の状態を選びます。',
       options: [
-        { value: 1, label: '余裕あり', hint: 'しっかり動ける' },
-        { value: 2, label: '軽い疲れ', hint: '通常で進めやすい' },
-        { value: 3, label: 'やや重い', hint: '短めが安心' },
-        { value: 4, label: 'かなり重い', hint: '軽め推奨' },
-        { value: 5, label: '限界に近い', hint: '休み優先' }
+        { value: 1, label: '良好', hint: '通常' },
+        { value: 2, label: '標準', hint: '通常' },
+        { value: 3, label: '調整', hint: '短め' },
+        { value: 4, label: '軽め', hint: '軽め' },
+        { value: 5, label: 'オフ', hint: '休み' }
       ]
     },
     muscleSoreness: {
-      label: '筋肉痛',
-      helper: '残っている張りや痛みの強さを選びます。',
+      label: '張り',
+      helper: '気になる部位の強さを選びます。',
       options: [
         { value: 0, label: 'なし', hint: '問題なし' },
         { value: 1, label: '少し', hint: '軽い張り' },
-        { value: 2, label: '中くらい', hint: '部位を選びたい' },
-        { value: 3, label: '強め', hint: '無理は避ける' },
-        { value: 4, label: 'かなり強い', hint: '回復優先' }
+        { value: 2, label: '中', hint: '部位選択' },
+        { value: 3, label: '強め', hint: '調整' },
+        { value: 4, label: '回復優先', hint: '休み' }
       ]
     },
     motivation: {
-      label: 'やる気',
-      helper: '気持ちの乗り具合を選びます。',
+      label: '集中度',
+      helper: '進めやすさを選びます。',
       options: [
-        { value: 1, label: 'ほぼない', hint: '行くだけで十分' },
-        { value: 2, label: '低め', hint: '短めならできる' },
+        { value: 1, label: '低', hint: '軽め' },
+        { value: 2, label: 'やや低', hint: '短め' },
         { value: 3, label: '普通', hint: '標準' },
-        { value: 4, label: 'ある', hint: '前向き' },
-        { value: 5, label: 'かなりある', hint: '余裕あり' }
+        { value: 4, label: '高', hint: '通常' },
+        { value: 5, label: '高め', hint: '通常' }
       ]
     },
     mood: {
-      label: '気分',
-      helper: '精神的な余裕や気分の良し悪しを選びます。',
+      label: '全体状態',
+      helper: '全体の状態を選びます。',
       options: [
-        { value: 1, label: 'かなり低い', hint: '今日は休めると安心' },
-        { value: 2, label: '低め', hint: '軽く済ませたい' },
+        { value: 1, label: '休み寄り', hint: '調整' },
+        { value: 2, label: '軽め', hint: '短め' },
         { value: 3, label: '普通', hint: '標準' },
-        { value: 4, label: '良い', hint: '前向き' },
-        { value: 5, label: 'かなり良い', hint: '余裕あり' }
+        { value: 4, label: '良好', hint: '通常' },
+        { value: 5, label: '高め', hint: '通常' }
       ]
     }
   };
@@ -272,7 +272,7 @@
         tone: 'warning',
         badge: '休み記録あり',
         title: '今日は休む判断まで残せています',
-        body: workout.memo || '無理をしない判断も継続の一部です。',
+        body: workout.memo || '今日は調整日として記録します。',
         primaryLabel: '休み理由を見る',
         primaryRoute: 'workout',
         secondaryLabel: '履歴を見る',
@@ -313,7 +313,7 @@
         tone: 'success',
         badge: '通常メニュー',
         title: '今日はしっかり進めて大丈夫です',
-        body: judgment.message || '必須種目を軸に、前回の実績から無理なく積み上げます。',
+      body: judgment.message || '必須種目を軸に、前回の実績から段階的に更新します。',
         primaryLabel: 'ワークアウト開始',
         primaryRoute: 'workout',
         secondaryLabel: '理由を確認',
@@ -338,8 +338,8 @@
       return {
         tone: 'warning',
         badge: result === 3 ? '軽め推奨' : '回復推奨',
-        title: result === 3 ? '今日は軽くつなぐ日です' : '今日は回復優先で進めます',
-        body: judgment.message || '頑張りすぎず、次に戻りやすい終わり方を選びます。',
+        title: result === 3 ? '今日は軽めの設定です' : '今日は回復優先です',
+        body: judgment.message || '次回に向けて整える設定です。',
         primaryLabel: '内容を見る',
         primaryRoute: 'workout',
         secondaryLabel: '判定を見直す',
@@ -350,8 +350,8 @@
     return {
       tone: 'warning',
       badge: '休み推奨',
-      title: '今日は休む判断が第一です',
-      body: judgment.message || '疲労を抜くことを優先して、理由だけ残します。',
+      title: '今日は回復優先です',
+      body: judgment.message || '今日は回復優先として、理由だけ残します。',
       primaryLabel: '休みを記録する',
       primaryRoute: 'workout',
       secondaryLabel: '判定を見直す',
@@ -751,7 +751,7 @@
             </div>
             <div class="reboot-score-box">--</div>
           </div>
-          <p>疲労感を必須にして、筋肉痛、やる気、気分、睡眠を合わせて今日のメニューを決めます。</p>
+              <p>コンディション、張り、集中度、睡眠を合わせて今日のメニューを決めます。</p>
         </div>`;
     }
 
@@ -837,7 +837,7 @@
                     <h3>今日の入力</h3>
                     <p id="condition-live-summary">${h(this._buildLiveSummary(condition, health))}</p>
                   </div>
-                  <span class="reboot-inline-note">疲労感は必須</span>
+                  <span class="reboot-inline-note">状態は必須</span>
                 </div>
 
                 <div class="reboot-form-stack">
@@ -846,7 +846,7 @@
                   <section class="reboot-choice-section">
                     <div class="reboot-section-head">
                       <div>
-                        <h3>筋肉痛の部位</h3>
+                    <h3>張りの部位</h3>
                         <p>痛みが残る部位を選ぶと、あとで見返しやすくなります。</p>
                       </div>
                     </div>
@@ -954,7 +954,7 @@
       const motivationText = CONDITION_OPTIONS.motivation.options.find(option => option.value === (condition?.motivation ?? null))?.label || '未入力';
       const moodText = CONDITION_OPTIONS.mood.options.find(option => option.value === (condition?.mood ?? null))?.label || '未入力';
       const sleepText = App.Utils.formatSleep(health?.sleepMinutes) || '睡眠未取得';
-      return `疲労 ${fatigueText} / 筋肉痛 ${sorenessText} / やる気 ${motivationText} / 気分 ${moodText} / 睡眠 ${sleepText}`;
+      return `状態 ${fatigueText} / 張り ${sorenessText} / 集中度 ${motivationText} / 全体 ${moodText} / 睡眠 ${sleepText}`;
     },
 
     _selectedValue(field) {
@@ -977,7 +977,7 @@
       const sleepValue = window.SteadyBridge && this._sleepTouched && sleepInput
         ? App.Utils.formatSleep(safeNumber(sleepInput.value, 0))
         : (document.getElementById('condition-sleep-value')?.textContent || '睡眠未取得');
-      const line = `疲労 ${fatigue} / 筋肉痛 ${soreness} / やる気 ${motivation} / 気分 ${mood} / 睡眠 ${sleepValue}`;
+      const line = `状態 ${fatigue} / 張り ${soreness} / 集中度 ${motivation} / 全体 ${mood} / 睡眠 ${sleepValue}`;
       const summary = document.getElementById('condition-live-summary');
       if (summary) summary.textContent = line;
     },
@@ -993,7 +993,7 @@
         const today = App.Utils.today();
         const fatigue = this._selectedValue('fatigue');
         if (fatigue == null) {
-          App.Utils.showToast('疲労感を選択してください', 'warning');
+          App.Utils.showToast('状態を選択してください', 'warning');
           return;
         }
 
@@ -1223,7 +1223,7 @@
           <div class="reboot-mini-stat">
             <span>今日の推奨</span>
             <strong>${h(recommendedLine)}</strong>
-            <small>${h(exercise.recommended?.note || '無理なく進める設定')}</small>
+                    <small>${h(exercise.recommended?.note || '段階的に進める設定')}</small>
           </div>
           <div class="reboot-mini-stat">
             <span>今回入力</span>
@@ -1388,7 +1388,7 @@
       const footerLabel = isCompleted ? '記録を更新する' : '今日はここまでで終了';
       const soreness = App.Training.sorenessContext(condition || {});
       const sorenessNote = soreness.active
-        ? `<div class="reboot-empty-card reboot-soreness-note"><strong>筋肉痛部位を避けています</strong><span>${h(soreness.areas.join('、'))}にかかる種目は外しました。</span></div>`
+          ? `<div class="reboot-empty-card reboot-soreness-note"><strong>張りのある部位を避けています</strong><span>${h(soreness.areas.join('、'))}にかかる種目は外しました。</span></div>`
         : '';
 
       return `
@@ -1397,7 +1397,7 @@
             <div class="reboot-title-block">
               <span class="reboot-eyebrow">Workout</span>
               <h2>ワークアウト</h2>
-              <p>必須種目を先に終え、余裕があれば任意種目へ進みます。前回実績、今日の推奨、今回入力を同時に見られます。</p>
+              <p>必須種目を先に終え、追加分は任意で進めます。前回実績、今日の推奨、今回入力を同時に見られます。</p>
             </div>
             <div class="reboot-head-tools">
               ${await renderSyncPanel('App.Views.Workout.syncNow()')}
@@ -1433,7 +1433,7 @@
                   <article class="reboot-stat-card">
                     <span>任意種目</span>
                     <strong id="workout-progress-optional">${progress.optionalDone}/${progress.optionalTotal}</strong>
-                    <small>余裕があれば追加</small>
+              <small>任意で追加</small>
                   </article>
                   <article class="reboot-stat-card">
                     <span>完了セット</span>
@@ -1473,7 +1473,7 @@
                   <div class="reboot-section-head">
                     <div>
                       <h3>任意種目</h3>
-                      <p>時間と余力がある日にだけ追加します。無理に全部やらなくて大丈夫です。</p>
+                      <p>時間と状態に合わせて追加します。任意種目はスキップできます。</p>
                     </div>
                   </div>
                   <div class="reboot-exercise-list">
@@ -1501,7 +1501,7 @@
                   </div>
                   <div class="reboot-stat-row">
                     <span>3</span>
-                    <strong>疲れたら任意は飛ばして終了</strong>
+              <strong>任意はスキップ可</strong>
                   </div>
                 </div>
               </section>
@@ -1551,7 +1551,7 @@
             <div class="reboot-title-block">
               <span class="reboot-eyebrow">Recovery</span>
               <h2>今日は回復優先</h2>
-              <p>無理をしない判断を主役にした画面です。必要なら軽いメニューへ切り替えられます。</p>
+              <p>調整日として記録します。必要なら軽いメニューへ切り替えられます。</p>
             </div>
           </section>
 
@@ -1562,7 +1562,7 @@
                   <div>
                     <span class="reboot-eyebrow">${existingWorkout?.type === 'skip' ? '休み記録あり' : '休み推奨'}</span>
                     <h3>${h(existingWorkout?.type === 'skip' ? '今日は休みとして記録済みです' : (judgment?.resultLabel || '今日は休み優先です'))}</h3>
-                    <p>${h(existingWorkout?.memo || judgment?.message || '疲れを抜いて、次に戻りやすい状態を優先します。')}</p>
+            <p>${h(existingWorkout?.memo || judgment?.message || '回復を優先し、次回に向けて整えます。')}</p>
                   </div>
                   <div class="reboot-command-score">${judgment?.score != null ? h(judgment.score) : '--'}</div>
                 </div>
@@ -1607,7 +1607,7 @@
             <div class="reboot-title-block">
               <span class="reboot-eyebrow">Stretch</span>
               <h2>回復メニュー</h2>
-              <p>今日は体を戻すことが目的です。5〜10分で終えて、無理なく明日へつなげます。</p>
+          <p>今日は調整日です。5〜10分で終えて、次回へつなげます。</p>
             </div>
             <div class="reboot-head-tools">
               ${existingWorkout?.type === 'stretch' ? '<span class="reboot-pill reboot-pill-success">本日記録あり</span>' : ''}
@@ -1976,11 +1976,11 @@
             </div>
             <div class="reboot-choice-grid" id="finish-feeling-grid">
               ${[
-                { value: 1, label: 'きつかった', hint: 'かなり重い' },
+                { value: 1, label: '重め', hint: '調整' },
                 { value: 2, label: '少し重い', hint: '調整したい' },
                 { value: 3, label: '普通', hint: '標準' },
-                { value: 4, label: '良い感じ', hint: '続けやすい' },
-                { value: 5, label: 'かなり良い', hint: '余裕あり' }
+          { value: 4, label: '良好', hint: '通常' },
+          { value: 5, label: '高め', hint: '通常' }
               ].map(option => `
                 <button type="button" class="reboot-choice-chip ${option.value === 3 ? 'selected' : ''}" data-finish-feeling="${option.value}">
                   <strong>${h(option.label)}</strong>
@@ -2061,11 +2061,11 @@
             <div class="reboot-section-head">
               <div>
                 <h3>休みの理由</h3>
-                <p>理由を残しておくと、あとで無理の傾向を見返しやすくなります。</p>
+                <p>理由を残しておくと、あとで見返しやすくなります。</p>
               </div>
             </div>
             <div class="reboot-area-grid">
-              ${['疲労', '体調不良', '仕事が長引いた', '時間不足', '気分が乗らない', 'その他'].map(reason => `
+              ${['コンディション調整', '体調都合', '仕事が長引いた', '時間不足', '集中度調整', 'その他'].map(reason => `
                 <button type="button" class="reboot-area-chip" data-skip-reason="${reason}">${h(reason)}</button>`).join('')}
             </div>
           </section>
@@ -3251,7 +3251,7 @@
             <div class="reboot-title-block">
               <span class="reboot-eyebrow">History</span>
               <h2>履歴</h2>
-              <p>ワークアウトと当日判定を見返して、続けやすいパターンを掴みやすくします。</p>
+              <p>ワークアウトと当日判定を一覧で確認します。</p>
             </div>
             <div class="reboot-head-tools">
               <div class="reboot-tabs">
@@ -3459,7 +3459,7 @@
             <div class="reboot-title-block">
               <span class="reboot-eyebrow">Analytics</span>
               <h2>分析</h2>
-              <p>睡眠、勤務、運動の関係を比較しやすくして、続けやすい条件を見つけやすくします。</p>
+            <p>睡眠、勤務、運動の関係を比較します。</p>
             </div>
             <div class="reboot-head-tools">
               <div class="reboot-tabs">
@@ -3514,7 +3514,7 @@
                     <article class="reboot-stat-card">
                       <span>休みの日の実施</span>
                       <strong>${offDayWorkouts}回</strong>
-                      <small>余裕のある日に進みやすい傾向</small>
+                    <small>状態が良い日に進みやすい傾向</small>
                     </article>
                     <article class="reboot-stat-card">
                       <span>判定記録</span>
@@ -3547,7 +3547,7 @@
                     <div class="reboot-list-card">
                       <div>
                         <strong>継続の見え方</strong>
-                        <span>${actual.length > 0 ? `直近30日で ${actual.length} 回の実施です。無理なく続ける土台はできています。` : 'まだ実施データが少ないので、1回目の記録から傾向を作っていきます。'}</span>
+              <span>${actual.length > 0 ? `直近30日で ${actual.length} 回の実施です。` : 'まだ実施データが少ないので、1回目の記録から傾向を作ります。'}</span>
                       </div>
                     </div>
                   </div>
@@ -3756,10 +3756,10 @@
     async render() {
       const steps = [
         {
-          kicker: '続けるための設計',
+          kicker: '記録の設計',
           title: '今日はどうするかを、まず決める',
           body: '勤務、体調、健康データから、今日は行くか軽くやるか休むかを先に判断します。',
-          bullets: ['仕事終わりでも迷いにくい', '休む判断も記録できる', 'チョコザップ前提のメニュー']
+          bullets: ['勤務後でも確認しやすい', '調整日も記録できる', '標準メニュー']
         },
         {
           kicker: '毎日の流れ',

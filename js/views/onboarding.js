@@ -36,11 +36,10 @@
               <div style="font-size:4rem;margin-bottom:24px;">🏋️</div>
               <h2 style="margin-bottom:12px;">ようこそ！</h2>
               <p class="text-secondary" style="line-height:1.7;margin-bottom:32px;">
-                からだログは、仕事終わりの遅い時間でも<br>
-                無理なく続けられるフィットネスコーチです。<br><br>
-                「今日は行くべき？」を自動で判断し<br>
-                チョコザップの機材に合わせた<br>
-                メニューを提案します。
+                からだログは、勤務・体調・健康データを<br>
+                まとめて確認できる記録アプリです。<br><br>
+                今日の状態に合わせて<br>
+                メニューと記録を整理します。
               </p>
               <button class="btn btn-primary btn-lg" onclick="App.Views.Onboarding.nextStep()">
                 はじめる →
@@ -59,7 +58,7 @@
                 </p>
                 <p class="text-sm mt-12">
                   <strong>② 毎日体調をチェック</strong><br>
-                  <span class="text-muted">疲労感・睡眠・やる気を入力</span>
+                  <span class="text-muted">状態・睡眠・集中度を入力</span>
                 </p>
                 <p class="text-sm mt-12">
                   <strong>③ 今日のおすすめを確認</strong><br>
@@ -85,23 +84,23 @@
               <div style="max-width:320px;margin:0 auto;text-align:left;line-height:1.8;">
                 <div class="text-sm mb-12">
                   <span style="color:var(--success);">✓</span> 
-                  <strong>無理しない</strong>
-                  <span class="text-muted"> — 休む判断も継続の一部</span>
+                  <strong>状態に合わせる</strong>
+                  <span class="text-muted"> — 日ごとに調整</span>
                 </div>
                 <div class="text-sm mb-12">
                   <span style="color:var(--success);">✓</span> 
-                  <strong>少しずつ成長</strong>
-                  <span class="text-muted"> — 急がず、着実に</span>
+                  <strong>段階的に更新</strong>
+                  <span class="text-muted"> — 記録を反映</span>
                 </div>
                 <div class="text-sm mb-12">
                   <span style="color:var(--success);">✓</span> 
-                  <strong>続けることが最優先</strong>
-                  <span class="text-muted"> — 完璧を求めない</span>
+                  <strong>記録を残す</strong>
+                  <span class="text-muted"> — 次回に反映</span>
                 </div>
                 <div class="text-sm mb-12">
                   <span style="color:var(--success);">✓</span> 
-                  <strong>あなたのペースで</strong>
-                  <span class="text-muted"> — マイペースが一番</span>
+                  <strong>データを同期</strong>
+                  <span class="text-muted"> — スプシで管理</span>
                 </div>
               </div>
               <div class="mt-24">

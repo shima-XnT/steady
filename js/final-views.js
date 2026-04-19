@@ -66,7 +66,7 @@
         tone: 'warning',
         badge: '最初の一歩',
         title: '今日はどうするかを先に決める',
-        body: '体調と勤務を入力してから、無理のないメニューを決めます。',
+        body: '体調と勤務を入力してから、今日のメニューを決めます。',
         primaryLabel: '今日の判定をする',
         primaryRoute: 'condition',
         secondaryLabel: '勤務を確認する',
@@ -79,7 +79,7 @@
         tone: 'warning',
         badge: '今日は休み',
         title: '休む判断まで記録できています',
-        body: workout.memo || '無理に続けず、次に再開しやすい状態を保ちましょう。',
+          body: workout.memo || '今日は調整設定です。次回に向けて整えます。',
         primaryLabel: '判定を見直す',
         primaryRoute: 'condition',
         secondaryLabel: '履歴を見る',
@@ -129,7 +129,7 @@
       return {
         tone: 'warning',
         badge: result === 3 ? '軽め推奨' : 'ストレッチ推奨',
-        title: result === 3 ? '今日は軽めで続ける日です' : '今日は回復優先で進めます',
+        title: result === 3 ? '今日は軽めの設定です' : '今日は回復優先です',
         body: judgment.message || '頑張るより、明日に残さない終わり方を優先します。',
         primaryLabel: '内容を確認する',
         primaryRoute: 'workout',
@@ -248,11 +248,11 @@
   }
 
   function renderStrictnessPreview(value) {
-    if (value <= 20) return 'かなりやさしめ';
-    if (value <= 40) return 'やややさしめ';
+    if (value <= 20) return 'かなり控えめ';
+    if (value <= 40) return 'やや控えめ';
     if (value <= 60) return '標準';
-    if (value <= 80) return 'やや厳しめ';
-    return 'かなり厳しめ';
+    if (value <= 80) return 'やや高め';
+    return 'かなり高め';
   }
 
   function formatSettingsBoundaryItem(item) {

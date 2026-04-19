@@ -36,35 +36,35 @@
           <div class="card mb-16" id="condition-form">
             <h3 class="mb-16">今日の体調</h3>
 
-            <!-- 疲労感 -->
+            <!-- コンディション -->
             <div class="form-group">
-              <div class="form-label">疲労感</div>
+              <div class="form-label">コンディション</div>
               <div class="emoji-selector" data-field="fatigue">
-                ${this._emojiOptions('fatigue', ['😊 元気', '🙂 普通', '😐 少し疲れ', '😓 疲れ', '😵 ヘトヘト'], hasCondition ? condition.fatigue : null)}
+          ${this._emojiOptions('fatigue', ['良好', '標準', '調整', '軽め', 'オフ'], hasCondition ? condition.fatigue : null)}
               </div>
             </div>
 
-            <!-- 筋肉痛 -->
+            <!-- 張り -->
             <div class="form-group">
-              <div class="form-label">筋肉痛</div>
+            <div class="form-label">張り</div>
               <div class="emoji-selector" data-field="muscleSoreness">
                 ${this._emojiOptions('muscleSoreness', ['✨ なし', '🤏 少し', '😣 そこそこ', '😖 結構', '🫠 強い'], hasCondition ? condition.muscleSoreness : null, 0)}
               </div>
             </div>
 
-            <!-- やる気 -->
+            <!-- 集中度 -->
             <div class="form-group">
-              <div class="form-label">やる気</div>
+              <div class="form-label">集中度</div>
               <div class="emoji-selector" data-field="motivation">
-                ${this._emojiOptions('motivation', ['😴 なし', '🫤 低い', '😐 普通', '💪 ある', '🔥 最高'], hasCondition ? condition.motivation : null)}
+                ${this._emojiOptions('motivation', ['低', 'やや低', '標準', '高', '高め'], hasCondition ? condition.motivation : null)}
               </div>
             </div>
 
-            <!-- 気分 -->
+            <!-- 全体状態 -->
             <div class="form-group">
-              <div class="form-label">気分</div>
+              <div class="form-label">全体状態</div>
               <div class="emoji-selector" data-field="mood">
-                ${this._emojiOptions('mood', ['😢 悪い', '😕 イマイチ', '😐 普通', '😊 良い', '😄 最高'], hasCondition ? condition.mood : null)}
+                ${this._emojiOptions('mood', ['休み寄り', '軽め', '標準', '良好', '高め'], hasCondition ? condition.mood : null)}
               </div>
             </div>
 
@@ -319,9 +319,9 @@
         const motivation = getSelected('motivation');
         const mood = getSelected('mood');
 
-        // 少なくとも疲労感は必須
+        // 少なくとも状態は必須
         if (fatigue == null) {
-          App.Utils.showToast('疲労感を選択してください', 'warning');
+          App.Utils.showToast('状態を選択してください', 'warning');
           if (judgeBtn) { judgeBtn.disabled = false; judgeBtn.textContent = '🔍 今日の判定をする'; }
           return;
         }

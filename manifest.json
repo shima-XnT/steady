@@ -1,7 +1,7 @@
 {
   "name": "からだログ",
   "short_name": "からだログ",
-  "description": "仕事終わりでも無理なく続けられる、フィットネス・健康管理・継続支援アプリ",
+  "description": "勤務・体調・健康データをまとめて確認できる記録アプリ",
   "start_url": "/index.html",
   "display": "standalone",
   "orientation": "portrait",

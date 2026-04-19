@@ -175,7 +175,7 @@
           <span class="badge badge-primary">${w.type}</span>
           ${w.startTime ? `<span class="text-sm text-muted ml-8">${App.Utils.normTime(w.startTime)}〜${App.Utils.normTime(w.endTime) || ''}</span>` : ''}
         </div>
-        ${w.feeling ? `<div class="text-sm mb-8">気分: ${feelingEmoji[w.feeling]} (${w.feeling}/5)</div>` : ''}
+              ${w.feeling ? `<div class="text-sm mb-8">状態: ${feelingEmoji[w.feeling]} (${w.feeling}/5)</div>` : ''}
         ${w.memo ? `<div class="text-sm text-muted mb-12">📝 ${App.Utils.escapeHtml(w.memo)}</div>` : ''}
         
         ${exercises.length > 0 ? `

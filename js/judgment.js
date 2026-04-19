@@ -18,29 +18,29 @@
 
   const RESULT_MESSAGES = {
     1: [
-      '体調も良好で、トレーニング日和です！',
-      '十分な回復ができています。しっかりやりましょう！',
+      '状態は良好です。通常メニューで進めます。',
+      '回復状況は良好です。通常メニューで進めます。',
       'コンディション良好。いつものメニューでOK！'
     ],
     2: [
-      '少し疲れていますが、短めなら大丈夫です。',
+      '今日は短縮設定です。',
       '時間や体調を考慮して、ポイントを絞りましょう。',
-      '主要な種目だけサクッとやりましょう。'
+      '主要種目を中心に進めます。'
     ],
     3: [
-      '体に負担の少ない有酸素で血行を良くしましょう。',
-      '軽く動くことでリフレッシュできます。',
-      'ウォーキングで軽く汗を流しましょう。'
+      '有酸素中心で進めます。',
+      '軽めの有酸素にします。',
+      'ウォーキング中心で進めます。'
     ],
     4: [
-      '今日は自宅で軽いストレッチがおすすめです。',
-      'ジムに行かなくても、体のケアはできます。',
-      '5分のストレッチでも十分な効果があります。'
+      '今日はストレッチ設定です。',
+      '短時間の調整メニューにします。',
+      '5分程度の調整メニューです。'
     ],
     5: [
-      '今日はしっかり休みましょう。休養も大切な練習です。',
-      '無理しないことが、長く続けるコツです。',
-      '明日に向けてゆっくり回復しましょう。'
+      '今日は回復設定です。',
+      '今日はオフ設定です。',
+      '次回に向けて調整します。'
     ]
   };
 
@@ -122,13 +122,13 @@
       // シフトタイプ
       if (shiftType === 'night') {
         score -= 40;
-        reasons.push('夜勤のため無理は禁物です');
+          reasons.push('夜勤のため調整優先です');
       } else if (shiftType === 'late') {
         score -= 15;
         reasons.push('遅番のため時間が限られます');
       } else if (shiftType === 'off') {
         score += 15;
-        reasons.push('お休みの日で余裕があります');
+          reasons.push('休みの日です');
       }
 
       // ===== 身体状態 =====
@@ -138,38 +138,38 @@
         const sleepH = sleepMinutes / 60;
         if (sleepH < 4) {
           score -= 45;
-          reasons.push('睡眠が非常に不足しています（' + sleepH.toFixed(1) + 'h）');
+          reasons.push('睡眠が短いです（' + sleepH.toFixed(1) + 'h）');
         } else if (sleepH < 5) {
           score -= 30;
-          reasons.push('睡眠不足気味（' + sleepH.toFixed(1) + 'h）');
+          reasons.push('睡眠が短め（' + sleepH.toFixed(1) + 'h）');
         } else if (sleepH < 6) {
           score -= 15;
           reasons.push('睡眠がやや短め（' + sleepH.toFixed(1) + 'h）');
         } else if (sleepH >= 7) {
           score += 10;
-          reasons.push('十分な睡眠が取れています');
+          reasons.push('睡眠は十分です');
         }
       }
 
-      // 疲労感
+      // コンディション
       if (fatigue >= 5) {
         score -= 35;
-        reasons.push('強い疲労を感じています');
+        reasons.push('コンディションは調整寄りです');
       } else if (fatigue >= 4) {
         score -= 20;
-        reasons.push('やや疲労感があります');
+        reasons.push('状態は調整寄りです');
       } else if (fatigue <= 1) {
         score += 5;
-        reasons.push('疲労感は少なめです');
+        reasons.push('状態は良好です');
       }
 
-      // 筋肉痛
+      // 張り
       if (muscleSoreness >= 4) {
         score -= 25;
-        reasons.push('筋肉痛が強めです');
+        reasons.push('張りが強めです');
       } else if (muscleSoreness >= 3) {
         score -= 10;
-        reasons.push('筋肉痛があります');
+        reasons.push('張りがあります');
       }
 
       // 心拍の異常
@@ -187,18 +187,18 @@
       // ===== モチベーション =====
       if (motivation >= 5) {
         score += 10;
-        reasons.push('やる気が高いです！');
+        reasons.push('集中度が高めです');
       } else if (motivation >= 4) {
         score += 5;
       } else if (motivation <= 1) {
         score -= 5;
-        reasons.push('気分が乗らない日もあります');
+        reasons.push('集中度は控えめです');
       }
 
-      // 気分
+      // 全体状態
       if (mood <= 1) {
         score -= 10;
-        reasons.push('気分が優れません');
+        reasons.push('全体状態は控えめです');
       } else if (mood >= 5) {
         score += 5;
       }
@@ -229,7 +229,7 @@
         // 軽度: 軽い注意（-15）— 先に判定して部分一致の誤マッチを防ぐ
         const mildKeywords = ['風邪気味', '少し痛', 'ちょっと', '微熱', '鼻水', '花粉', '寝不足'];
         // 中度: 大幅減点（-35）
-        const moderateKeywords = ['風邪', '頭痛', '腹痛', '下痢', 'めまい', '吐き', '咳', '喉が痛', '体調不良', '具合が悪', '気持ち悪', 'だるい', '倦怠感', '寒気', '関節痛', '腰痛', '怪我', 'ケガ', '捻挫', '骨折'];
+        const moderateKeywords = ['風邪', '頭痛', '腹痛', '下痢', 'めまい', '吐き', '咳', '喉が痛', '体調', '具合', '吐き気', 'だるい', '倦怠感', '寒気', '関節痛', '腰痛', '怪我', 'ケガ', '捻挫', '骨折'];
         // 重度: 即座にスキップ推奨（-60）
         const severeKeywords = ['熱がある', '発熱', '高熱', '嘔吐', '吐き気', '動けない', '入院'];
 
@@ -238,7 +238,7 @@
         for (const kw of mildKeywords) {
           if (noteText.includes(kw)) {
             score -= 15;
-            reasons.push('メモ: 「' + kw + '」— 様子を見ながら');
+            reasons.push('メモ内容を反映しました');
             matched = true;
             break;
           }
@@ -247,7 +247,7 @@
           for (const kw of moderateKeywords) {
             if (noteText.includes(kw)) {
               score -= 35;
-              reasons.push('メモ: 「' + kw + '」— 体調優先で軽めに');
+              reasons.push('メモ内容を反映しました');
               matched = true;
               break;
             }
@@ -257,7 +257,7 @@
           for (const kw of severeKeywords) {
             if (noteText.includes(kw)) {
               score -= 60;
-              reasons.push('メモ: 「' + kw + '」— 無理せず休んでください');
+              reasons.push('メモ内容を反映しました');
               matched = true;
               break;
             }

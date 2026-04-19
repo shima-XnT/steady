@@ -1,12 +1,12 @@
 // ============================================
 // Steady — トレーニング生成エンジン
-// チョコザップ機材ベースのメニュー設計
+// 標準ジム機材ベースのメニュー設計
 // ============================================
 (function() {
   'use strict';
   window.App = window.App || {};
 
-  // チョコザップ利用可能機材
+  // 利用可能機材
   const EQUIPMENT = [
     { id: 'leg_press', name: 'レッグプレス', category: '下半身', icon: '🦵' },
     { id: 'lat_pulldown', name: 'ラットプルダウン', category: '背中', icon: '🔙' },
@@ -19,7 +19,7 @@
     { id: 'treadmill', name: 'トレッドミル', category: '有酸素', icon: '🏃' }
   ];
 
-  // デフォルト初期値（初心者向け）
+  // デフォルト初期値
   const DEFAULTS = {
     leg_press:      { weight: 20, reps: 10, sets: 2 },
     lat_pulldown:   { weight: 15, reps: 10, sets: 2 },
@@ -445,7 +445,7 @@
             recommendedWeight = weight;
             progressionNote = reps < TARGET_REPS ? `回数を増やす (${reps}→${recommendedReps})` : '';
           } else {
-            // 未完了 → 据え置き（無理しない）
+    // 未完了 → 据え置き
             recommendedWeight = weight;
             recommendedReps = reps;
             progressionNote = '前回のメニューを継続';
@@ -528,7 +528,7 @@
       let weight = perf ? perf.weight : def.weight;
       let reps = perf ? perf.minReps : def.reps;
       let sets = perf ? perf.setCount : def.sets;
-      let note = '初回はフォーム優先';
+      let note = '初回設定';
       let phase = 'form';
       let capReached = false;
 

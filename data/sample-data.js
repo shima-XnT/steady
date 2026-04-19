@@ -96,7 +96,7 @@
 
       const w3id = await App.DB.saveWorkout({
         date: dateStr(-1), startTime: '22:15', endTime: '22:40',
-        type: 'short', feeling: 3, memo: '少し疲れていたので短縮'
+        type: 'short', feeling: 3, memo: 'コンディション調整で短縮'
       });
       await App.DB.saveExercises(w3id, [
         { name: 'レッグプレス', sets: [{ setNumber: 1, weight: 25, reps: 10, completed: true }, { setNumber: 2, weight: 25, reps: 10, completed: true }] },
@@ -106,12 +106,12 @@
 
       // --- 判定履歴 ---
       const judgments = [
-        { date: dateStr(-6), score: 82, result: 1, resultLabel: '通常メニュー', reasons: ['お休みの日で余裕があります', '十分な睡眠が取れています'], message: '体調も良好で、トレーニング日和です！', userOverride: null },
-        { date: dateStr(-5), score: 58, result: 2, resultLabel: '短縮メニュー', reasons: ['睡眠がやや短め', 'やや疲労感があります'], message: '少し疲れていますが、短めなら大丈夫です。', userOverride: 5 },
-        { date: dateStr(-4), score: 90, result: 1, resultLabel: '通常メニュー', reasons: ['十分な睡眠が取れています', '適度な間隔が空いています', 'やる気が高いです！'], message: 'コンディション良好。いつものメニューでOK！', userOverride: null },
-        { date: dateStr(-3), score: 52, result: 2, resultLabel: '短縮メニュー', reasons: ['筋肉痛があります', 'やや疲労感があります'], message: '主要な種目だけサクッとやりましょう。', userOverride: null },
-        { date: dateStr(-2), score: 28, result: 4, resultLabel: '家で軽いストレッチ', reasons: ['遅番のため時間が限られます', '睡眠不足気味', '強い疲労を感じています'], message: '今日は自宅で軽いストレッチがおすすめです。', userOverride: null },
-        { date: dateStr(-1), score: 72, result: 2, resultLabel: '短縮メニュー', reasons: ['十分な睡眠が取れています', '疲労感は少なめです'], message: '少し疲れていますが、短めなら大丈夫です。', userOverride: 1 }
+        { date: dateStr(-6), score: 82, result: 1, resultLabel: '通常メニュー', reasons: ['休みの日です', '睡眠は十分です'], message: '状態は良好です。通常メニューで進めます。', userOverride: null },
+        { date: dateStr(-5), score: 58, result: 2, resultLabel: '短縮メニュー', reasons: ['睡眠がやや短め', '状態は調整寄りです'], message: '今日は短縮設定です。', userOverride: 5 },
+        { date: dateStr(-4), score: 90, result: 1, resultLabel: '通常メニュー', reasons: ['睡眠は十分です', '適度な間隔が空いています', '集中度が高めです'], message: 'コンディション良好。いつものメニューでOK！', userOverride: null },
+        { date: dateStr(-3), score: 52, result: 2, resultLabel: '短縮メニュー', reasons: ['張りがあります', '状態は調整寄りです'], message: '主要種目を中心に進めます。', userOverride: null },
+        { date: dateStr(-2), score: 28, result: 4, resultLabel: '家で軽いストレッチ', reasons: ['遅番のため時間が限られます', '睡眠が短め', 'コンディションは調整寄りです'], message: '今日はストレッチ設定です。', userOverride: null },
+        { date: dateStr(-1), score: 72, result: 2, resultLabel: '短縮メニュー', reasons: ['睡眠は十分です', '状態は良好です'], message: '今日は短縮設定です。', userOverride: 1 }
       ];
       for (const j of judgments) {
         await App.DB.upsertJudgment(j);
