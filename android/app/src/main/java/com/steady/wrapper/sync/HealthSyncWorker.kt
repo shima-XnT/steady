@@ -60,7 +60,9 @@ class HealthSyncWorker(
         // 3. GAS API に POST
         return try {
             val success = postToGas(entity.date, entity.steps, entity.sleepMinutes,
-                entity.sleepStartAt, entity.sleepEndAt, entity.heartRateAvg, entity.restingHeartRate)
+                entity.sleepStartAt, entity.sleepEndAt,
+                entity.napMinutes, entity.napStartAt, entity.napEndAt,
+                entity.heartRateAvg, entity.restingHeartRate)
             if (success) {
                 Log.d(TAG, "Successfully synced to GAS for $today")
                 Result.success()
@@ -83,6 +85,9 @@ class HealthSyncWorker(
         sleepMinutes: Long?,
         sleepStartAt: String?,
         sleepEndAt: String?,
+        napMinutes: Long?,
+        napStartAt: String?,
+        napEndAt: String?,
         heartRateAvg: Long?,
         restingHeartRate: Long?
     ): Boolean = withContext(Dispatchers.IO) {
@@ -93,6 +98,9 @@ class HealthSyncWorker(
             if (sleepMinutes != null) put("sleepMinutes", sleepMinutes)
             if (sleepStartAt != null) put("sleepStartAt", sleepStartAt)
             if (sleepEndAt != null) put("sleepEndAt", sleepEndAt)
+            if (napMinutes != null) put("napMinutes", napMinutes)
+            if (napStartAt != null) put("napStartAt", napStartAt)
+            if (napEndAt != null) put("napEndAt", napEndAt)
             if (heartRateAvg != null) put("heartRateAvg", heartRateAvg)
             if (restingHeartRate != null) put("restingHeartRate", restingHeartRate)
             put("source", "health_connect")

@@ -30,9 +30,6 @@
     normal: '通常勤務',
     project: '案件あり勤務',
     business_trip: '出張勤務',
-    early: '早番',
-    late: '遅番',
-    night: '夜勤',
     remote: '在宅'
   };
 
@@ -351,14 +348,21 @@
   }
 
   function getShiftLabel(type) {
-    return SHIFT_LABELS[type] || type || '未設定';
+    const normalized = normalizeShiftType(type);
+    return SHIFT_LABELS[normalized] || normalized || '未設定';
   }
 
   function formatShiftRange(schedule) {
     if (!schedule) return '未設定';
-    if (schedule.shiftType === 'off') return '終日休み';
-    if (schedule.shiftType === 'paid_leave') return '終日有給';
+    const shiftType = normalizeShiftType(schedule.shiftType);
+    if (shiftType === 'off') return '終日休み';
+    if (shiftType === 'paid_leave') return '終日有給';
     return `${App.Utils.normTime(schedule.startTime) || '--:--'} - ${App.Utils.normTime(schedule.endTime) || '--:--'}`;
+  }
+
+  function normalizeShiftType(type) {
+    if (type === 'early' || type === 'late' || type === 'night') return 'normal';
+    return type || '';
   }
 
   function installUtilityHelpers() {
@@ -680,6 +684,7 @@
     getAvailableMinutes,
     getShiftLabel,
     formatShiftRange,
+    normalizeShiftType,
     applyNavigation,
     installDbHelpers
   };

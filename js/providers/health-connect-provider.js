@@ -51,6 +51,8 @@
         fetchedAt: data.fetchedAt || new Date().toISOString(),
         steps: data.steps ?? null,
         sleepMinutes: data.sleepMinutes ?? null,
+        sleepStartAt: data.sleepStartAt ?? null,
+        sleepEndAt: data.sleepEndAt ?? null,
         heartRateAvg: data.heartRateAvg ?? null,
         restingHeartRate: data.restingHeartRate ?? null
       };
@@ -111,6 +113,8 @@
       const hasHealthData = snapshot && (
         snapshot.steps != null ||
         snapshot.sleepMinutes != null ||
+        snapshot.sleepStartAt != null ||
+        snapshot.sleepEndAt != null ||
         snapshot.heartRateAvg != null ||
         snapshot.restingHeartRate != null
       );
@@ -134,6 +138,8 @@
       };
       if (snapshot.steps != null) healthData.steps = snapshot.steps;
       if (snapshot.sleepMinutes != null) healthData.sleepMinutes = snapshot.sleepMinutes;
+      if (snapshot.sleepStartAt != null) healthData.sleepStartAt = snapshot.sleepStartAt;
+      if (snapshot.sleepEndAt != null) healthData.sleepEndAt = snapshot.sleepEndAt;
       if (snapshot.heartRateAvg != null) healthData.heartRateAvg = snapshot.heartRateAvg;
       if (snapshot.restingHeartRate != null) healthData.restingHeartRate = snapshot.restingHeartRate;
 

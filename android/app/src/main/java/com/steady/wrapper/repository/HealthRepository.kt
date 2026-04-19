@@ -27,10 +27,11 @@ class HealthRepository(
             val steps = healthConnectManager.getSteps(dateStr)
             val sleepSummary = healthConnectManager.getSleepSummary(dateStr)
             val sleep = sleepSummary?.minutes
+            val nap = sleepSummary?.napMinutes
             val heartRate = healthConnectManager.getAverageHeartRate(dateStr)
             val restingHr = healthConnectManager.getRestingHeartRate(dateStr)
 
-            val status = if (steps == null && sleep == null && heartRate == null && restingHr == null) {
+            val status = if (steps == null && sleep == null && nap == null && heartRate == null && restingHr == null) {
                 "partial" // Data might just be missing for the day
             } else {
                 "success"
@@ -42,6 +43,9 @@ class HealthRepository(
                 sleepMinutes = sleep,
                 sleepStartAt = sleepSummary?.startAt,
                 sleepEndAt = sleepSummary?.endAt,
+                napMinutes = nap,
+                napStartAt = sleepSummary?.napStartAt,
+                napEndAt = sleepSummary?.napEndAt,
                 heartRateAvg = heartRate,
                 restingHeartRate = restingHr,
                 source = "health_connect",
@@ -60,6 +64,7 @@ class HealthRepository(
                     HealthDailyEntity(
                         date = dateStr,
                         steps = null, sleepMinutes = null, sleepStartAt = null, sleepEndAt = null,
+                        napMinutes = null, napStartAt = null, napEndAt = null,
                         heartRateAvg = null, restingHeartRate = null,
                         source = "health_connect",
                         syncedAt = ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),

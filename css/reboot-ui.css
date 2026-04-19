@@ -1053,8 +1053,19 @@ body {
 
 .reboot-day-cell {
   min-height: 126px;
+  display: flex;
   text-align: left;
   flex-direction: column;
+}
+
+.reboot-day-note {
+  margin-top: auto;
+  color: var(--reboot-text);
+  opacity: 0.9;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .reboot-day-cell.other {

@@ -69,7 +69,7 @@
         activeMinutes = null,     // 活動時間
         daysSinceLastWorkout = null,
         consecutiveTrainingDays = 0,
-        shiftType = null,         // off, normal, project, business_trip, legacy: early/late/night/remote
+        shiftType = null,         // off, paid_leave, normal, project, business_trip, remote
         note = '',                // 体調メモ（フリーテキスト）
       } = input;
 
@@ -120,13 +120,7 @@
       }
 
       // シフトタイプ
-      if (shiftType === 'night') {
-        score -= 40;
-          reasons.push('夜勤のため調整優先です');
-      } else if (shiftType === 'late') {
-        score -= 15;
-        reasons.push('遅番のため時間が限られます');
-      } else if (shiftType === 'business_trip') {
+      if (shiftType === 'business_trip') {
         score -= 25;
         reasons.push('出張勤務のため調整します');
       } else if (shiftType === 'project') {

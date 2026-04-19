@@ -53,13 +53,16 @@
                   const s = scheduleMap[date];
                   const isToday = date === today;
                   const dayNum = new Date(date + 'T00:00:00').getDate();
-                  const shiftClass = s ? `shift-${s.shiftType}` : '';
-                  const label = s ? this._shiftShort(s.shiftType) : '';
+                  const normalizedShiftType = s ? this._normalizeShiftType(s.shiftType) : '';
+                  const shiftClass = normalizedShiftType ? `shift-${normalizedShiftType.replace('_', '-')}` : '';
+                  const label = normalizedShiftType ? this._shiftShort(normalizedShiftType) : '';
+                  const note = s ? this._calendarNote(s) : '';
                   return `
                     <div class="calendar-day ${otherMonth ? 'other-month' : ''} ${isToday ? 'today' : ''} ${shiftClass}"
                          data-date="${date}" ${otherMonth ? '' : 'onclick="App.Views.WorkSchedule.editDay(\'' + date + '\')"'}>
                       <span>${dayNum}</span>
                       ${label ? `<span class="shift-label">${label}</span>` : ''}
+                      ${note ? `<small class="shift-note">${App.Utils.escapeHtml(note)}</small>` : ''}
                     </div>`;
                 }).join('')}
               </div>
@@ -143,13 +146,14 @@
     },
 
     _shiftShort(type) {
-      const map = { off: '休', paid_leave: '有', normal: '通', project: '案', business_trip: '出', early: '早', late: '遅', night: '夜', remote: '在' };
-      return map[type] || '?';
+      const map = { off: '休', paid_leave: '有', normal: '通', project: '案', business_trip: '出', remote: '在' };
+      return map[this._normalizeShiftType(type)] || '?';
     },
 
     _shiftFull(s) {
-      const labels = { off: '休み', paid_leave: '有給', normal: '通常勤務', project: '案件あり勤務', business_trip: '出張勤務', early: '早番', late: '遅番', night: '夜勤', remote: '在宅' };
-      let text = labels[s.shiftType] || s.shiftType;
+      const labels = { off: '休み', paid_leave: '有給', normal: '通常勤務', project: '案件あり勤務', business_trip: '出張勤務', remote: '在宅' };
+      const shiftType = this._normalizeShiftType(s.shiftType);
+      let text = labels[shiftType] || shiftType;
       if (s.startTime && s.endTime) {
         text += ` (${App.Utils.normTime(s.startTime)}〜${App.Utils.normTime(s.endTime)})`;
       }
@@ -157,13 +161,27 @@
     },
 
     _shiftBadge(type) {
-      const map = { off: 'success', paid_leave: 'success', normal: 'info', project: 'warning', business_trip: 'primary', early: 'info', late: 'warning', night: 'danger', remote: 'primary' };
-      return map[type] || 'muted';
+      const map = { off: 'success', paid_leave: 'success', normal: 'info', project: 'warning', business_trip: 'primary', remote: 'primary' };
+      return map[this._normalizeShiftType(type)] || 'muted';
+    },
+
+    _calendarNote(schedule) {
+      if (!schedule) return '';
+      if (schedule.shiftType === 'business_trip') {
+        return [schedule.destination, schedule.hotelName].filter(Boolean).join(' / ');
+      }
+      return schedule.note || '';
+    },
+
+    _normalizeShiftType(type) {
+      if (type === 'early' || type === 'late' || type === 'night') return 'normal';
+      return type || 'normal';
     },
 
     editDay(dateStr) {
       App.DB.getSchedule(dateStr).then(existing => {
         const s = existing || { date: dateStr, shiftType: 'normal', startTime: '09:00', endTime: '18:00' };
+        s.shiftType = this._normalizeShiftType(s.shiftType);
         
         const html = `
           <div class="form-group">

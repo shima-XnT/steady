@@ -303,6 +303,10 @@
     return App.FinalPolish.getShiftLabel(type);
   }
 
+  function normalizeShiftType(type) {
+    return App.FinalPolish.normalizeShiftType ? App.FinalPolish.normalizeShiftType(type) : type;
+  }
+
   function availableMinutes(schedule) {
     return App.FinalPolish.getAvailableMinutes(schedule);
   }
@@ -2429,7 +2433,13 @@
   }
 
   function isLegacyShiftType(type) {
-    return !!type && !Object.prototype.hasOwnProperty.call(SHIFT_PRESETS, type);
+    const normalized = normalizeShiftType(type);
+    return !!normalized && !Object.prototype.hasOwnProperty.call(SHIFT_PRESETS, normalized);
+  }
+
+  function scheduleCalendarNote(schedule) {
+    if (!schedule) return '';
+    return schedulePlaceLine(schedule) || schedule.note || '';
   }
 
   function summarizeMonthSchedules(schedules) {
@@ -2480,7 +2490,7 @@
       }
 
       const selectedSchedule = await App.DB.getSchedule(this._selectedDate);
-      const selectedShiftType = selectedSchedule?.shiftType || 'normal';
+      const selectedShiftType = normalizeShiftType(selectedSchedule?.shiftType || 'normal') || 'normal';
       const selectedIsLegacy = isLegacyShiftType(selectedShiftType);
       const selectedPreset = SHIFT_PRESETS[selectedShiftType] || SHIFT_PRESETS.normal;
       const selectedPlaceLine = schedulePlaceLine(selectedSchedule);
@@ -2551,12 +2561,16 @@
                   ${monthDates.map(({ date, otherMonth }) => {
                     const schedule = scheduleMap.get(date);
                     const dayNum = new Date(`${date}T00:00:00`).getDate();
+                    const normalizedSchedule = schedule ? { ...schedule, shiftType: normalizeShiftType(schedule.shiftType) || schedule.shiftType } : null;
+                    const rangeLine = normalizedSchedule ? App.FinalPolish.formatShiftRange(normalizedSchedule).replace(/\s+/g, ' ').trim() : '';
+                    const noteLine = scheduleCalendarNote(normalizedSchedule);
                     return `
                       <button class="reboot-day-cell ${otherMonth ? 'other' : ''} ${date === todayStr ? 'today' : ''} ${date === this._selectedDate ? 'selected' : ''}"
                         ${otherMonth ? 'disabled' : `onclick="App.Views.WorkSchedule.selectDate('${date}')"`}>
                         <span class="reboot-day-number">${dayNum}</span>
-                        <span class="reboot-day-type">${h(schedule ? shiftLabel(schedule.shiftType) : '未設定')}</span>
-                        <small>${h(schedule ? App.FinalPolish.formatShiftRange(schedule).replace(/\s+/g, ' ').trim() : '')}</small>
+                        <span class="reboot-day-type">${h(normalizedSchedule ? shiftLabel(normalizedSchedule.shiftType) : '未設定')}</span>
+                        <small>${h(rangeLine)}</small>
+                        ${noteLine ? `<small class="reboot-day-note">${h(noteLine)}</small>` : ''}
                       </button>`;
                   }).join('')}
                 </div>

@@ -11,15 +11,27 @@ import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import java.time.LocalDate
-import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 data class SleepSummary(
     val minutes: Long,
     val startAt: String?,
-    val endAt: String?
+    val endAt: String?,
+    val napMinutes: Long? = null,
+    val napStartAt: String? = null,
+    val napEndAt: String? = null
+)
+
+private data class SleepCandidate(
+    val record: SleepSessionRecord,
+    val minutes: Long,
+    val startLocal: ZonedDateTime,
+    val endLocal: ZonedDateTime,
+    val score: Long
 )
 
 /**
@@ -56,49 +68,166 @@ class HealthConnectManager(private val context: Context) {
     }
 
     /**
-     * 指定された日付に終わる睡眠セッションの合計分数を取得する
+     * 指定された日付に紐づく主睡眠の分数を取得する。
      */
     suspend fun getSleepMinutes(dateStr: String): Long? {
          return getSleepSummary(dateStr)?.minutes
     }
 
     /**
-     * 指定された日付に終わる睡眠セッションの合計分数と、最初の就寝/最後の起床時刻を取得する
+     * 指定日の主睡眠を取得する。
+     *
+     * Health Connect には昼寝も SleepSessionRecord として入るため、単純合算すると
+     * 「昼寝だけがその日の睡眠」に見えやすい。対象日の朝に終わる長めの睡眠を最優先にし、
+     * それが無い場合だけ、対象日の夜に始まる長めの睡眠や最長セッションへフォールバックする。
      */
     suspend fun getSleepSummary(dateStr: String): SleepSummary? {
          if (!isAvailable()) return null
           
          try {
-             // 睡眠は前日の夜〜当日にかけて記録されることが多いため、前日昼12時から当日昼12時をターゲットにする
              val date = LocalDate.parse(dateStr)
              val zone = ZoneId.of("Asia/Tokyo")
-             val start = date.minusDays(1).atTime(12, 0).atZone(zone)
-             val end = date.atTime(12, 0).atZone(zone)
-             
+             // 睡眠は「前夜に始まって当日朝に終わる」ことが多い。
+             // 過去日の表示差も吸収するため、対象日夜開始の睡眠も候補に入れてから主睡眠を選ぶ。
+             val start = date.minusDays(1).atTime(18, 0).atZone(zone)
+             val end = date.plusDays(1).atTime(12, 0).atZone(zone)
+              
              val response = client.readRecords(
                  ReadRecordsRequest(
                      recordType = SleepSessionRecord::class,
                      timeRangeFilter = TimeRangeFilter.between(start.toInstant(), end.toInstant())
                  )
              )
-             
+              
              if (response.records.isEmpty()) return null
-             
-             var totalMinutes = 0L
-             var sleepStart = response.records.minOfOrNull { it.startTime }
-             var sleepEnd = response.records.maxOfOrNull { it.endTime }
-             response.records.forEach { record ->
-                 totalMinutes += ChronoUnit.MINUTES.between(record.startTime, record.endTime)
-             }
+
+             val candidates = response.records
+                 .mapNotNull { buildSleepCandidate(it, date, zone) }
+                 .sortedByDescending { it.score }
+
+             val primary = candidates.firstOrNull() ?: return null
+             val grouped = groupAdjacentNightSleep(primary, candidates)
+             val totalMinutes = grouped.sumOf { it.minutes }
+             val sleepStart = grouped.minOfOrNull { it.record.startTime }
+             val sleepEnd = grouped.maxOfOrNull { it.record.endTime }
+             val naps = candidates
+                 .filter { it !in grouped && isNapCandidate(it, date) }
+                 .sortedBy { it.record.startTime }
+             val napMinutes = naps.takeIf { it.isNotEmpty() }?.sumOf { it.minutes }
+             val napStart = naps.minOfOrNull { it.record.startTime }
+             val napEnd = naps.maxOfOrNull { it.record.endTime }
+
              return SleepSummary(
                  minutes = totalMinutes,
-                 startAt = sleepStart?.atZone(zone)?.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-                 endAt = sleepEnd?.atZone(zone)?.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                 startAt = sleepStart?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                 endAt = sleepEnd?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                 napMinutes = napMinutes,
+                 napStartAt = napStart?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                 napEndAt = napEnd?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
              )
          } catch (e: Exception) {
              Log.e(TAG, "Error reading sleep: \${e.message}")
              return null
          }
+     }
+
+    private fun buildSleepCandidate(
+        record: SleepSessionRecord,
+        targetDate: LocalDate,
+        zone: ZoneId
+    ): SleepCandidate? {
+        val minutes = ChronoUnit.MINUTES.between(record.startTime, record.endTime)
+        if (minutes <= 0) return null
+
+        val startLocal = record.startTime.atZone(zone)
+        val endLocal = record.endTime.atZone(zone)
+        val startDate = startLocal.toLocalDate()
+        val endDate = endLocal.toLocalDate()
+        val startTime = startLocal.toLocalTime()
+        val endTime = endLocal.toLocalTime()
+
+        val looksLikeNightSleep =
+            startDate != endDate ||
+                startTime.isBefore(LocalTime.of(9, 0)) ||
+                !startTime.isBefore(LocalTime.of(18, 0))
+        val wakesOnTargetMorning =
+            looksLikeNightSleep &&
+                endDate == targetDate &&
+                isTimeBetween(endTime, LocalTime.of(3, 0), LocalTime.of(14, 0))
+        val startsOnTargetNight =
+            startDate == targetDate && !startTime.isBefore(LocalTime.of(18, 0))
+        val spansNightAroundTarget =
+            startDate != endDate && (startDate == targetDate || endDate == targetDate)
+        val daytimeNap =
+            startDate == endDate &&
+                !startTime.isBefore(LocalTime.of(9, 0)) &&
+                !endTime.isAfter(LocalTime.of(19, 0))
+
+        var score = minutes
+        if (wakesOnTargetMorning) score += 30000
+        if (startsOnTargetNight) score += 15000
+        if (spansNightAroundTarget) score += 8000
+        if (minutes >= 180) score += 5000 else score -= 12000
+        if (daytimeNap) score -= 7000
+
+        return SleepCandidate(record, minutes, startLocal, endLocal, score)
+    }
+
+    private fun isNapCandidate(candidate: SleepCandidate, targetDate: LocalDate): Boolean {
+        val startDate = candidate.startLocal.toLocalDate()
+        val endDate = candidate.endLocal.toLocalDate()
+        val startTime = candidate.startLocal.toLocalTime()
+        val endTime = candidate.endLocal.toLocalTime()
+        val touchesTargetDate = startDate == targetDate || endDate == targetDate
+        if (!touchesTargetDate || candidate.minutes < 10) return false
+
+        val sameDayDaytime =
+            startDate == endDate &&
+                !startTime.isBefore(LocalTime.of(9, 0)) &&
+                !endTime.isAfter(LocalTime.of(20, 0))
+        val shortRest = candidate.minutes <= 180
+        val likelyNextNightSleep = !startTime.isBefore(LocalTime.of(18, 0)) && candidate.minutes > 120
+
+        return (sameDayDaytime || shortRest) && !likelyNextNightSleep
+    }
+
+    private fun groupAdjacentNightSleep(
+        primary: SleepCandidate,
+        candidates: List<SleepCandidate>
+    ): List<SleepCandidate> {
+        val grouped = mutableListOf(primary)
+        val maxGapMinutes = 90L
+
+        candidates.forEach { candidate ->
+            if (candidate == primary) return@forEach
+            if (candidate.minutes < 20) return@forEach
+
+            val gapBefore = ChronoUnit.MINUTES.between(candidate.record.endTime, primary.record.startTime)
+            val gapAfter = ChronoUnit.MINUTES.between(primary.record.endTime, candidate.record.startTime)
+            val nearPrimary =
+                (gapBefore in 0..maxGapMinutes) ||
+                (gapAfter in 0..maxGapMinutes) ||
+                recordsOverlap(candidate, primary)
+
+            val nightLike =
+                candidate.endLocal.toLocalTime().isBefore(LocalTime.of(14, 0)) ||
+                !candidate.startLocal.toLocalTime().isBefore(LocalTime.of(18, 0)) ||
+                candidate.startLocal.toLocalDate() != candidate.endLocal.toLocalDate()
+
+            if (nearPrimary && nightLike) {
+                grouped.add(candidate)
+            }
+        }
+
+        return grouped.sortedBy { it.record.startTime }
+    }
+
+    private fun recordsOverlap(a: SleepCandidate, b: SleepCandidate): Boolean {
+        return a.record.startTime < b.record.endTime && b.record.startTime < a.record.endTime
+    }
+
+    private fun isTimeBetween(time: LocalTime, start: LocalTime, end: LocalTime): Boolean {
+        return !time.isBefore(start) && !time.isAfter(end)
     }
 
     /**

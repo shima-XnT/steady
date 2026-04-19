@@ -87,6 +87,8 @@ class MainActivity : AppCompatActivity() {
                     appendLine("😴 睡眠: ${entity.sleepMinutes?.let { "${it}分 (${it/60}h${it%60}m)" } ?: "—"}")
                     appendLine("🛌 就寝: ${entity.sleepStartAt?.take(16)?.replace('T', ' ') ?: "—"}")
                     appendLine("☀️ 起床: ${entity.sleepEndAt?.take(16)?.replace('T', ' ') ?: "—"}")
+                    appendLine("💤 仮眠: ${entity.napMinutes?.let { "${it}分 (${it/60}h${it%60}m)" } ?: "—"}")
+                    appendLine("仮眠時間: ${entity.napStartAt?.take(16)?.replace('T', ' ') ?: "—"} - ${entity.napEndAt?.take(16)?.replace('T', ' ') ?: "—"}")
             appendLine("💓 心拍: ${entity.heartRateAvg ?: "—"} bpm")
                     appendLine("🫀 安静時: ${entity.restingHeartRate ?: "—"} bpm")
                     appendLine("")
