@@ -210,6 +210,8 @@
     const end = formatClockFromIso(health?.sleepEndAt);
     return start && end ? `${start}-${end}` : '';
   }
+  App.Utils.formatClockFromIso = App.Utils.formatClockFromIso || formatClockFromIso;
+  App.Utils.formatSleepWindow = App.Utils.formatSleepWindow || formatSleepWindow;
 
   function countExerciseDone(exercise) {
     return (exercise.sets || []).filter(set => set.completed).length;
@@ -925,7 +927,7 @@
                   <div class="reboot-stat-row">
                     <span>睡眠</span>
                     <strong>${h(App.Utils.formatSleep(health?.sleepMinutes) || '未取得')}</strong>
-                    <small>${h(formatSleepWindow(health) || '時刻は未取得')}</small>
+                    <small>${h(App.Utils.formatSleepWindow?.(health) || '時刻は未取得')}</small>
                   </div>
                   <div class="reboot-stat-row">
                     <span>歩数</span>
@@ -2796,7 +2798,7 @@
         <div class="reboot-list-card">
           <div>
             <strong>${h(App.Utils.formatDate(record.date))}</strong>
-            <span>睡眠 ${h(App.Utils.formatSleep(record.sleepMinutes) || '—')}${formatSleepWindow(record) ? ` (${h(formatSleepWindow(record))})` : ''} / 歩数 ${record.steps != null ? h(record.steps.toLocaleString()) : '—'}</span>
+            <span>睡眠 ${h(App.Utils.formatSleep(record.sleepMinutes) || '—')}${App.Utils.formatSleepWindow?.(record) ? ` (${h(App.Utils.formatSleepWindow(record))})` : ''} / 歩数 ${record.steps != null ? h(record.steps.toLocaleString()) : '—'}</span>
           </div>
           <div class="reboot-list-aside">
             <span>平均心拍 ${record.heartRateAvg != null ? `${h(record.heartRateAvg)} bpm` : '—'}</span>
@@ -2958,7 +2960,7 @@
                   <article class="reboot-stat-card">
                     <span>睡眠</span>
                     <strong>${h(App.Utils.formatSleep(health?.sleepMinutes) || '未取得')}</strong>
-                    <small>${h(formatSleepWindow(health) || (sleepAvg != null ? `平均 ${sleepAvg.toFixed(1)}h` : '—'))}</small>
+                    <small>${h(App.Utils.formatSleepWindow?.(health) || (sleepAvg != null ? `平均 ${sleepAvg.toFixed(1)}h` : '—'))}</small>
                   </article>
                   <article class="reboot-stat-card">
                     <span>平均心拍</span>
