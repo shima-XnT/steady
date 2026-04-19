@@ -1,6 +1,6 @@
 {
-  "name": "Steady — やさしい継続コーチ",
-  "short_name": "Steady",
+  "name": "からだログ",
+  "short_name": "からだログ",
   "description": "仕事終わりでも無理なく続けられる、フィットネス・健康管理・継続支援アプリ",
   "start_url": "/index.html",
   "display": "standalone",

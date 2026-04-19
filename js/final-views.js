@@ -618,7 +618,6 @@
                 <div class="mini-list">
                   <button class="mini-link" type="button" id="settings-export-btn">エクスポート</button>
                   <button class="mini-link" type="button" id="settings-import-btn">インポート</button>
-                  <button class="mini-link" type="button" id="settings-sample-btn">サンプル</button>
                   <button class="mini-link danger-link" type="button" id="settings-reset-btn">ローカル初期化</button>
                 </div>
                 <input type="file" id="settings-import-file" accept=".json" hidden>
@@ -720,13 +719,6 @@
         } finally {
           event.target.value = '';
         }
-      });
-
-      document.getElementById('settings-sample-btn')?.addEventListener('click', async () => {
-        if (!window.confirm('サンプルデータを読み込みます。現在のローカルデータは上書きされる場合があります。')) return;
-        await App.SampleData.load();
-        App.Utils.showToast('サンプルデータを読み込みました', 'success');
-        setTimeout(() => App.navigate('home'), 300);
       });
 
       document.getElementById('settings-reset-btn')?.addEventListener('click', () => {

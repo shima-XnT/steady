@@ -259,7 +259,7 @@
 
     sidebar.innerHTML = `
       <div class="sidebar-brand polished-brand">
-        <h1>Steady</h1>
+        <h1>からだログ</h1>
         <div class="subtitle">勤務と体調から今日の継続を支える</div>
       </div>
       <ul class="sidebar-nav polished-nav">
@@ -685,7 +685,7 @@
       installUtilityHelpers();
       installDbHelpers();
       applyNavigation();
-      document.title = 'Steady | やさしい継続トレーニング';
+      document.title = 'からだログ';
     }, 60);
   });
 })();

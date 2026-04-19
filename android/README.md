@@ -1,4 +1,4 @@
-# Steady Android Health Sync
+# からだログ Android Health Sync
 
 このAndroidアプリは、画面操作用のPWAではありません。
 スマホ側の役割は Health Connect のデータを取得して、Google Apps Script / Googleスプレッドシートへ送る同期専用アプリです。

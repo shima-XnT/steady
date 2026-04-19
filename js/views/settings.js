@@ -160,10 +160,6 @@
             </button>
             <input type="file" id="import-file" accept=".json" style="display:none;">
             
-            <button class="btn btn-secondary btn-block mb-8" id="sample-btn">
-              📋 サンプルデータを投入
-            </button>
-            
             <button class="btn btn-danger btn-block" id="reset-btn">
               🗑️ すべてのデータを初期化
             </button>
@@ -171,7 +167,7 @@
 
           <!-- バージョン情報 -->
           <div class="text-center text-muted text-xs mt-20" style="padding-bottom:20px;">
-            <div>Steady — やさしい継続コーチ</div>
+            <div>からだログ</div>
             <div>Version 2.0.0 (v49)</div>
             <div class="mt-8">📱 Health Connect連携 ＆ クラウド同期</div>
             <div class="mt-4">設定: 🔗 共有 = スプシ同期 ／ 📱 端末 = ローカルのみ</div>
@@ -338,14 +334,6 @@
           setTimeout(() => App.navigate('home'), 1000);
         } catch (err) {
           App.Utils.showToast('インポートに失敗しました: ' + err.message, 'error');
-        }
-      });
-
-      // Sample data
-      document.getElementById('sample-btn')?.addEventListener('click', async () => {
-        if (confirm('サンプルデータを投入しますか？既存データは保持されます。')) {
-          await App.SampleData.load();
-          setTimeout(() => App.navigate('home'), 500);
         }
       });
 

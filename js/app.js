@@ -142,8 +142,8 @@
     const sidebar = document.getElementById('sidebar');
     sidebar.innerHTML = `
       <div class="sidebar-brand">
-        <h1>Steady</h1>
-        <div class="subtitle">やさしい継続コーチ</div>
+        <h1>からだログ</h1>
+        <div class="subtitle">勤務と体調から今日を整える</div>
       </div>
       <ul class="sidebar-nav">
         ${SIDEBAR_NAV.map(key => {
@@ -266,10 +266,13 @@
     // ハッシュルーター
     window.addEventListener('hashchange', handleRoute);
 
-    // オンボーディングチェック
+    // オンボーディングは初回も自動表示しない。必要な場合だけ #/onboarding へ直接入る。
     const onboardingDone = await App.DB.getSetting('onboardingDone', false);
     if (!onboardingDone) {
-      window.location.hash = '#/onboarding';
+      await App.DB.setSetting('onboardingDone', true);
+    }
+    if (getRoute() === 'onboarding') {
+      window.location.hash = '#/home';
     }
 
     // 初回ルーティング
@@ -285,7 +288,7 @@
       }
     }
 
-    console.log('🎉 Steady — やさしい継続コーチ initialized');
+    console.log('🎉 からだログ initialized');
   }
 
   // DOM Ready で起動

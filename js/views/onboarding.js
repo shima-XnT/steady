@@ -14,8 +14,8 @@
       currentStep = 0;
       return `
         <div class="onboarding" id="onboarding-container">
-          <div class="logo-text">Steady</div>
-          <div class="tagline">やさしい継続コーチ</div>
+          <div class="logo-text">からだログ</div>
+          <div class="tagline">勤務と体調から今日を整える</div>
 
           <div class="step-indicator" id="step-indicator">
             ${Array.from({length: TOTAL_STEPS}, (_, i) => `
@@ -36,7 +36,7 @@
               <div style="font-size:4rem;margin-bottom:24px;">🏋️</div>
               <h2 style="margin-bottom:12px;">ようこそ！</h2>
               <p class="text-secondary" style="line-height:1.7;margin-bottom:32px;">
-                Steady は、仕事終わりの遅い時間でも<br>
+                からだログは、仕事終わりの遅い時間でも<br>
                 無理なく続けられるフィットネスコーチです。<br><br>
                 「今日は行くべき？」を自動で判断し<br>
                 チョコザップの機材に合わせた<br>
@@ -108,11 +108,6 @@
                 <button class="btn btn-primary btn-lg" onclick="App.Views.Onboarding.finish()">
                   🚀 はじめましょう！
                 </button>
-                <div class="mt-12">
-                  <button class="btn btn-ghost text-sm" onclick="App.Views.Onboarding.loadSample()">
-                    📋 サンプルデータで試す
-                  </button>
-                </div>
               </div>
             </div>`;
       }
@@ -138,12 +133,6 @@
     },
 
     async finish() {
-      await App.DB.setSetting('onboardingDone', true);
-      App.navigate('home');
-    },
-
-    async loadSample() {
-      await App.SampleData.load();
       await App.DB.setSetting('onboardingDone', true);
       App.navigate('home');
     },

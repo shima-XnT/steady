@@ -11,7 +11,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Steady Health Sync"
+        android:text="からだログ ヘルス同期"
         android:textSize="24sp"
         android:textColor="#FFFFFF"
         android:textStyle="bold"

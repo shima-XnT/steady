@@ -3781,7 +3781,7 @@
           <section class="reboot-onboarding-hero">
             <div class="reboot-onboarding-copy">
               <span class="reboot-eyebrow">${h(step.kicker)}</span>
-              <h1>Steady</h1>
+              <h1>からだログ</h1>
               <h2>${h(step.title)}</h2>
               <p>${h(step.body)}</p>
               <div class="reboot-link-list">
@@ -3790,7 +3790,6 @@
               <div class="reboot-inline-actions">
                 ${onboardingStep > 0 ? `<button class="btn btn-ghost" type="button" onclick="App.Views.Onboarding.prevStep()">戻る</button>` : ''}
                 ${onboardingStep < steps.length - 1 ? `<button class="btn btn-primary" type="button" onclick="App.Views.Onboarding.nextStep()">次へ</button>` : `<button class="btn btn-primary" type="button" onclick="App.Views.Onboarding.finish()">使い始める</button>`}
-                <button class="btn btn-secondary" type="button" onclick="App.Views.Onboarding.loadSample()">サンプルで試す</button>
               </div>
             </div>
             <div class="reboot-onboarding-side">
@@ -3822,12 +3821,6 @@
     },
 
     async finish() {
-      await App.DB.setSetting('onboardingDone', true);
-      App.navigate('home');
-    },
-
-    async loadSample() {
-      await App.SampleData.load();
       await App.DB.setSetting('onboardingDone', true);
       App.navigate('home');
     },
