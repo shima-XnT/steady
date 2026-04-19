@@ -62,14 +62,24 @@
     remote: { label: '在宅', start: '09:00', end: '18:00' }
   };
 
+  const WORKOUT_TIMER_START_KEY = 'steady_workout_timer_start';
   let workoutTimer = null;
   let workoutStartTime = (() => {
-    const saved = localStorage.getItem('steady_workout_timer_start');
-    return saved ? Number(saved) : null;
+    const saved = Number(localStorage.getItem(WORKOUT_TIMER_START_KEY));
+    return Number.isFinite(saved) && saved > 0 ? saved : null;
   })();
   let currentExercises = [];
   let currentWorkoutId = null;
   let currentWorkoutType = null;
+
+  function clearWorkoutTimerState() {
+    if (workoutTimer) {
+      clearInterval(workoutTimer);
+      workoutTimer = null;
+    }
+    workoutStartTime = null;
+    localStorage.removeItem(WORKOUT_TIMER_START_KEY);
+  }
 
   function h(value) {
     return App.Utils.escapeHtml(value == null ? '' : String(value));
@@ -83,6 +93,16 @@
   function safeNumber(value, fallback = 0) {
     const num = Number(value);
     return Number.isFinite(num) ? num : fallback;
+  }
+
+  function editableNumberValue(value, fallback = '') {
+    if (value == null || value === '') return fallback;
+    return String(value);
+  }
+
+  function parseEditableNumber(value) {
+    if (value == null || String(value).trim() === '') return null;
+    return safeNumber(value, 0);
   }
 
   function formatMinutes(minutes) {
@@ -1112,7 +1132,7 @@
             <div class="reboot-set-row">
               <div class="reboot-set-label">時間</div>
               <div class="reboot-set-inputs">
-                <input class="form-input" type="number" min="1" step="1" value="${safeNumber(exercise.durationMin, 10)}"
+                <input class="form-input" type="number" inputmode="numeric" min="1" step="1" value="${h(editableNumberValue(exercise.durationMin, 10))}"
                   oninput="App.Views.Workout.updateCardio(${index}, 'durationMin', this.value)">
                 <span>分</span>
               </div>
@@ -1127,10 +1147,10 @@
               <div class="reboot-set-row">
                 <div class="reboot-set-label">${set.setNumber}セット目</div>
                 <div class="reboot-set-inputs">
-                  <input class="form-input" type="number" min="0" step="2.5" value="${safeNumber(set.weight, 0)}"
+                  <input class="form-input" type="number" inputmode="decimal" min="0" step="2.5" value="${h(editableNumberValue(set.weight))}"
                     oninput="App.Views.Workout.updateSet(${index}, ${setIndex}, 'weight', this.value)">
                   <span>kg</span>
-                  <input class="form-input" type="number" min="0" step="1" value="${safeNumber(set.reps, 0)}"
+                  <input class="form-input" type="number" inputmode="numeric" min="0" step="1" value="${h(editableNumberValue(set.reps))}"
                     oninput="App.Views.Workout.updateSet(${index}, ${setIndex}, 'reps', this.value)">
                   <span>回</span>
                 </div>
@@ -1503,7 +1523,7 @@
     updateSet(exerciseIndex, setIndex, field, value) {
       const exercise = currentExercises[exerciseIndex];
       if (!exercise?.sets?.[setIndex]) return;
-      exercise.sets[setIndex][field] = safeNumber(value, 0);
+      exercise.sets[setIndex][field] = parseEditableNumber(value);
       this._refreshExerciseCard(exerciseIndex);
       this._refreshProgress();
       this._autoSave();
@@ -1512,7 +1532,7 @@
     updateCardio(exerciseIndex, field, value) {
       const exercise = currentExercises[exerciseIndex];
       if (!exercise) return;
-      exercise[field] = safeNumber(value, 0);
+      exercise[field] = parseEditableNumber(value);
       this._refreshExerciseCard(exerciseIndex);
       this._autoSave();
     },
@@ -1650,7 +1670,7 @@
 
       if (!workoutStartTime) {
         workoutStartTime = Date.now();
-        localStorage.setItem('steady_workout_timer_start', String(workoutStartTime));
+        localStorage.setItem(WORKOUT_TIMER_START_KEY, String(workoutStartTime));
       }
       workoutTimer = setInterval(() => this._updateTimerDisplay(), 1000);
       button.classList.remove('btn-primary');
@@ -1751,8 +1771,8 @@
             warningMessage: 'ワークアウトは保存されましたが、共有側への確定はまだです',
             errorPrefix: 'ワークアウトの保存に失敗しました'
           });
+          clearWorkoutTimerState();
           App.navigate('home');
-          localStorage.removeItem('steady_workout_timer_start');
         } catch (error) {
           if (confirmButton) {
             confirmButton.disabled = false;
@@ -1818,6 +1838,7 @@
             warningMessage: '休み記録は保存されましたが、共有側への確定はまだです',
             errorPrefix: '休み記録の保存に失敗しました'
           });
+          clearWorkoutTimerState();
           App.navigate('home');
         } catch (error) {
           if (button) {
@@ -1856,6 +1877,7 @@
             warningMessage: 'ストレッチ記録は保存されましたが、共有側への確定はまだです',
             errorPrefix: 'ストレッチ記録の保存に失敗しました'
           });
+          clearWorkoutTimerState();
           App.navigate('home');
         } catch (error) {
           if (button) {
@@ -1881,8 +1903,6 @@
       currentExercises = [];
       currentWorkoutId = null;
       currentWorkoutType = null;
-      workoutStartTime = null;
-      localStorage.removeItem('steady_workout_timer_start');
       if (workoutTimer) {
         clearInterval(workoutTimer);
         workoutTimer = null;

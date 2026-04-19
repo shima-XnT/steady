@@ -185,7 +185,9 @@ function _handleLegacyPost(data) {
   if (data.condition) {
     condJudgPatch.fatigue = data.condition.fatigue;
     condJudgPatch.muscleSoreness = data.condition.muscleSoreness;
-    condJudgPatch.sorenessAreas = data.condition.sorenessAreas || '';
+    if (data.condition.sorenessAreas != null) {
+      condJudgPatch.sorenessAreas = data.condition.sorenessAreas || '';
+    }
     condJudgPatch.motivation = data.condition.motivation;
     condJudgPatch.mood = data.condition.mood;
     condJudgPatch.memo = data.condition.note || '';
@@ -488,6 +490,18 @@ function _coalesce() {
 }
 
 // ============ daily_summary ============
+function _dailySummaryHeaders() {
+  return [
+    'date','weekday','shiftType','workStart','workEnd','availableMinutes',
+    'judgmentResult','judgmentScore','judgmentReason',
+    'didWorkout','workoutType','totalDurationMinutes',
+    'steps','sleepMinutes','heartRateAvg','restingHeartRate',
+    'fatigue','muscleSoreness','sorenessAreas','motivation','mood',
+    'skipReason','memo','healthSource','lastHealthFetchAt','lastSyncedAt',
+    'sourceDevice','updatedBy','updatedAt','revision'
+  ];
+}
+
 function _saveDailySummary(d, clientRevision) {
   var weekdayNames = ['日','月','火','水','木','金','土'];
   var weekday = '';
@@ -497,15 +511,7 @@ function _saveDailySummary(d, clientRevision) {
       if (!isNaN(dt.getTime())) weekday = weekdayNames[dt.getDay()];
     } catch(e) {}
   }
-  var sheet = _sheetWithHeaders('daily_summary', [
-    'date','weekday','shiftType','workStart','workEnd','availableMinutes',
-    'judgmentResult','judgmentScore','judgmentReason',
-    'didWorkout','workoutType','totalDurationMinutes',
-    'steps','sleepMinutes','heartRateAvg','restingHeartRate',
-    'fatigue','muscleSoreness','sorenessAreas','motivation','mood',
-    'skipReason','memo','healthSource','lastHealthFetchAt','lastSyncedAt',
-    'sourceDevice','updatedBy','updatedAt','revision'
-  ]);
+  var sheet = _sheetWithHeaders('daily_summary', _dailySummaryHeaders());
   var row = [
     d.date, weekday, d.shiftType||'', d.workStart||'', d.workEnd||'', d.availableMinutes != null ? d.availableMinutes : '',
     d.judgmentResult != null ? d.judgmentResult : '', d.judgmentScore != null ? d.judgmentScore : '', d.judgmentReason||'',
@@ -741,6 +747,9 @@ function _getAll() {
 
   // --- daily_summary シートから読み込む ---
   var summarySheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('daily_summary');
+  if (summarySheet) {
+    summarySheet = _sheetWithHeaders('daily_summary', _dailySummaryHeaders());
+  }
   if (summarySheet && summarySheet.getLastRow() > 1) {
     var headers = summarySheet.getRange(1, 1, 1, summarySheet.getLastColumn()).getValues()[0];
     var data = summarySheet.getRange(2, 1, summarySheet.getLastRow() - 1, summarySheet.getLastColumn()).getValues();
@@ -752,13 +761,15 @@ function _getAll() {
       if (!byDate[d]) byDate[d] = { date: d };
       var dsRevision = parseInt(obj.revision) || 0;
       // conditionデータ
-      if (obj.fatigue || obj.muscleSoreness || obj.motivation || obj.mood) {
+      if (!_isBlankCell(obj.fatigue) || !_isBlankCell(obj.muscleSoreness) || !_isBlankCell(obj.sorenessAreas) || !_isBlankCell(obj.motivation) || !_isBlankCell(obj.mood) || !_isBlankCell(obj.memo)) {
         byDate[d].condition = {
           date: d,
           fatigue: Number(obj.fatigue) || 0,
           muscleSoreness: Number(obj.muscleSoreness) || 0,
+          sorenessAreas: obj.sorenessAreas || '',
           motivation: Number(obj.motivation) || 3,
-          mood: Number(obj.mood) || 3
+          mood: Number(obj.mood) || 3,
+          note: obj.memo || ''
         };
       }
       // judgmentデータ
@@ -1024,8 +1035,104 @@ function _sheetWithHeaders(name, headers) {
     s.getRange(1, 1, 1, headers.length).setValues([headers]);
     s.getRange(1, 1, 1, headers.length).setFontWeight('bold');
     s.setFrozenRows(1);
+    return s;
   }
+
+  if (s.getLastRow() === 0) {
+    s.getRange(1, 1, 1, headers.length).setValues([headers]);
+    s.getRange(1, 1, 1, headers.length).setFontWeight('bold');
+    s.setFrozenRows(1);
+    return s;
+  }
+
+  var lastRow = s.getLastRow();
+  var lastCol = Math.max(s.getLastColumn(), 1);
+  var values = s.getRange(1, 1, lastRow, lastCol).getValues();
+  var currentHeaders = values[0].map(function(h) { return String(h || '').trim(); });
+  var currentIndex = {};
+  for (var i = 0; i < currentHeaders.length; i++) {
+    if (currentHeaders[i] && currentIndex[currentHeaders[i]] == null) {
+      currentIndex[currentHeaders[i]] = i;
+    }
+  }
+
+  var needsNormalize = false;
+  for (var hi = 0; hi < headers.length; hi++) {
+    if (currentHeaders[hi] !== headers[hi]) {
+      needsNormalize = true;
+      break;
+    }
+  }
+  if (!needsNormalize) return s;
+
+  var extraHeaders = [];
+  for (var ei = 0; ei < currentHeaders.length; ei++) {
+    var existingHeader = currentHeaders[ei];
+    if (existingHeader && headers.indexOf(existingHeader) === -1 && extraHeaders.indexOf(existingHeader) === -1) {
+      extraHeaders.push(existingHeader);
+    }
+  }
+
+  var desiredIndex = {};
+  for (var di = 0; di < headers.length; di++) desiredIndex[headers[di]] = di;
+  var newHeaders = headers.concat(extraHeaders);
+  var missingSorenessAreas = name === 'daily_summary' && currentIndex.sorenessAreas == null && desiredIndex.sorenessAreas != null;
+  var newValues = [newHeaders];
+
+  for (var r = 1; r < values.length; r++) {
+    var sourceRow = values[r];
+    var useDailySummaryPosition = missingSorenessAreas && _dailySummaryRowLooksCanonical(sourceRow, desiredIndex, headers.length);
+    var newRow = [];
+    for (var c = 0; c < newHeaders.length; c++) {
+      var header = newHeaders[c];
+      var sourceIdx = null;
+      if (useDailySummaryPosition && c < headers.length) {
+        sourceIdx = c;
+      } else if (currentIndex[header] != null) {
+        sourceIdx = currentIndex[header];
+      }
+      newRow.push(sourceIdx != null && sourceRow[sourceIdx] != null ? sourceRow[sourceIdx] : '');
+    }
+    newValues.push(newRow);
+  }
+
+  if (s.getMaxColumns() < newHeaders.length) {
+    s.insertColumnsAfter(s.getMaxColumns(), newHeaders.length - s.getMaxColumns());
+  }
+  if (s.getMaxRows() < newValues.length) {
+    s.insertRowsAfter(s.getMaxRows(), newValues.length - s.getMaxRows());
+  }
+  s.clearContents();
+  s.getRange(1, 1, newValues.length, newHeaders.length).setValues(newValues);
+  s.getRange(1, 1, 1, newHeaders.length).setFontWeight('bold');
+  s.setFrozenRows(1);
   return s;
+}
+
+function _dailySummaryRowLooksCanonical(row, desiredIndex, expectedLength) {
+  if (!row || row.length < expectedLength) return false;
+  var area = row[desiredIndex.sorenessAreas];
+  if (_looksLikeAreaList(area)) return true;
+  if (_isBlankCell(area)) {
+    return _isLikelyScore(row[desiredIndex.motivation]) && _isLikelyScore(row[desiredIndex.mood]);
+  }
+  return false;
+}
+
+function _looksLikeAreaList(v) {
+  if (_isBlankCell(v)) return false;
+  var s = String(v).trim();
+  return s.indexOf(',') > -1 || isNaN(Number(s));
+}
+
+function _isLikelyScore(v) {
+  if (_isBlankCell(v)) return false;
+  var n = Number(v);
+  return !isNaN(n) && n >= 0 && n <= 5;
+}
+
+function _isBlankCell(v) {
+  return v === '' || v === null || v === undefined;
 }
 
 function _findRow(sheet, key) {

@@ -278,7 +278,7 @@
     // Service Worker 登録
     if ('serviceWorker' in navigator) {
       try {
-        await navigator.serviceWorker.register('/sw.js');
+        await navigator.serviceWorker.register('sw.js');
         console.log('[SW] Service Worker registered');
       } catch (e) {
         console.log('[SW] Registration failed (running locally?):', e.message);

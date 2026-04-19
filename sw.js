@@ -1,29 +1,35 @@
 // Steady Service Worker — オフラインキャッシュ
 const CACHE_NAME = 'steady-v56';
-const ASSETS = [
-  '/index.html',
-  '/css/index.css',
-  '/js/app.js',
-  '/js/db.js',
-  '/js/utils.js',
-  '/js/judgment.js',
-  '/js/training.js',
-  '/js/providers/base-provider.js',
-  '/js/providers/manual-provider.js',
-  '/js/providers/health-connect-provider.js',
-  '/js/sync/sheet-sync.js',
-  '/js/views/dashboard.js',
-  '/js/views/condition-input.js',
-  '/js/views/work-schedule.js',
-  '/js/views/workout.js',
-  '/js/views/health.js',
-  '/js/views/history.js',
-  '/js/views/analytics.js',
-  '/js/views/settings.js',
-  '/js/views/onboarding.js',
-  '/data/sample-data.js',
-  '/manifest.json'
+const ASSET_PATHS = [
+  'index.html',
+  'css/index.css',
+  'css/final-polish.css',
+  'css/reboot-ui.css',
+  'js/app.js',
+  'js/db.js',
+  'js/final-helpers.js',
+  'js/final-views.js',
+  'js/reboot-views.js',
+  'js/utils.js',
+  'js/judgment.js',
+  'js/training.js',
+  'js/providers/base-provider.js',
+  'js/providers/manual-provider.js',
+  'js/providers/health-connect-provider.js',
+  'js/sync/sheet-sync.js',
+  'js/views/dashboard.js',
+  'js/views/condition-input.js',
+  'js/views/work-schedule.js',
+  'js/views/workout.js',
+  'js/views/health.js',
+  'js/views/history.js',
+  'js/views/analytics.js',
+  'js/views/settings.js',
+  'js/views/onboarding.js',
+  'data/sample-data.js',
+  'manifest.json'
 ];
+const ASSETS = ASSET_PATHS.map(path => new URL(path, self.registration.scope).toString());
 
 // Install: キャッシュにアセットを保存
 self.addEventListener('install', event => {

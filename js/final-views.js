@@ -14,7 +14,7 @@
     return `${value}${unit}`;
   }
 
-  function getProviderMeta() {
+  function getProviderMetaLegacyUnused() {
     const provider = App.healthProvider;
     const status = provider?.getStatus?.() || 'manual';
     const statusMap = {

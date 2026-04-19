@@ -3,6 +3,7 @@ android/app/build/
 android/.gradle/
 android/build/
 android/app/src/main/assets/
+android/local.properties
 
 # IDE
 .idea/
@@ -15,8 +16,13 @@ Thumbs.db
 # Test
 test-results/
 
-# Data
-data/sample-data.js
+# Local signing / secrets
+*.jks
+*.keystore
+*.p12
+*.pem
+*.env
+*.env.*
 
 # Gemini
 .gemini/

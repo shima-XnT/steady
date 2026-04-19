@@ -1,13 +1,12 @@
 package com.steady.wrapper
 
 object Constants {
-    // Development URL (Change to file:///android_asset/index.html for production)
-    const val PWA_URL_DEV = "http://10.0.2.2:3000" // Emulator localhost address
-    const val PWA_URL_PROD = "file:///android_asset/index.html"
-    
-    // Choose environment
-    const val PWA_URL = PWA_URL_PROD
-    
-    const val BRIDGE_NAME = "SteadyBridge"
+    // GAS API endpoint for health data sync
+    const val GAS_API_URL = "https://script.google.com/macros/s/AKfycbzNwWhfiS536TNOe3-sq9gipfR2hfcMpQf1PkuK-nzTQP5QYnfaijfJNJ1VKsULQRlbZA/exec"
+
     const val ROOM_DATABASE_NAME = "steady_health_db"
+
+    // WorkManager
+    const val SYNC_WORK_NAME = "steady_health_sync"
+    const val SYNC_INTERVAL_MINUTES = 15L // Android minimum
 }
