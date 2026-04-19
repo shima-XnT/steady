@@ -425,7 +425,7 @@
      */
     _buildExercise(equipment, historyInput, flags = {}) {
       const def = DEFAULTS[equipment.id] || { weight: 0, reps: 10, sets: 2 };
-      const isCardio = equipment.category === '譛蛾・邏';
+      const isCardio = equipment.id === 'treadmill' || equipment.category === '有酸素';
       const menuType = flags.menuType || 'full';
       const profile = profileFor(equipment, flags, def);
       const history = Array.isArray(historyInput)
@@ -451,6 +451,7 @@
 
       if (isCardio) {
         const durationMin = flags.isWarmup || flags.isCooldown ? 5 : (def.durationMin || 10);
+        const speed = num(latest?.speed, def.speed || 5);
         return {
           name: equipment.name,
           equipmentId: equipment.id,
@@ -462,10 +463,13 @@
           optional: !!flags.optional,
           sets: buildSets(1, 0, 0),
           durationMin,
+          speed,
           previous: latest ? {
             date: latest.workoutDate,
             weight: 0,
             reps: 0,
+            speed: num(latest.speed, speed),
+            durationMin: num(latest.durationMin, durationMin),
             sets: latest.sets?.length || 1,
             successStreak: stable
           } : null,

@@ -1,9 +1,40 @@
 #!/usr/bin/env pwsh
 
+param(
+    [switch]$LegacyWebView
+)
+
 $ErrorActionPreference = "Stop"
 
 $root = $PSScriptRoot
 $assets = Join-Path $root "android\app\src\main\assets"
+$syncOnlyMarker = Join-Path $root "android\app\src\main\java\com\steady\wrapper\sync\HealthSyncWorker.kt"
+
+if ((Test-Path $syncOnlyMarker) -and -not $LegacyWebView) {
+    Write-Host "=== Steady: Android is Health Sync Only ===" -ForegroundColor Cyan
+    Write-Host "Root:   $root"
+    Write-Host "Assets: $assets"
+    Write-Host ""
+    Write-Host "Android app is native Health Connect sync only; WebView assets are not used." -ForegroundColor Yellow
+    Write-Host "Root HTML/CSS/JS is for GitHub Pages and will not be copied into Android assets." -ForegroundColor Yellow
+
+    if (Test-Path $assets) {
+        $resolvedAssets = [System.IO.Path]::GetFullPath($assets)
+        $resolvedMain = [System.IO.Path]::GetFullPath((Join-Path $root "android\app\src\main"))
+        if ($resolvedAssets.StartsWith($resolvedMain) -and (Split-Path $resolvedAssets -Leaf) -eq "assets") {
+            Remove-Item -LiteralPath $resolvedAssets -Recurse -Force
+            Write-Host "  [DELETED] stale android/app/src/main/assets" -ForegroundColor Red
+        } else {
+            throw "Refusing to delete unexpected assets path: $resolvedAssets"
+        }
+    } else {
+        Write-Host "  [OK] android/app/src/main/assets is absent" -ForegroundColor Green
+    }
+
+    Write-Host ""
+    Write-Host "Use .\sync-assets.ps1 -LegacyWebView only for the old WebView build." -ForegroundColor DarkGray
+    exit 0
+}
 
 Write-Host "=== Steady: Root -> Android Assets Sync ===" -ForegroundColor Cyan
 Write-Host "Root:   $root"

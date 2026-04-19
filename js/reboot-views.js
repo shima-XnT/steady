@@ -71,6 +71,10 @@
   let currentExercises = [];
   let currentWorkoutId = null;
   let currentWorkoutType = null;
+  let workoutCloudSaveTimer = null;
+  let workoutCloudSaveInFlight = false;
+  let workoutCloudSaveAgain = false;
+  let workoutLocalSaveChain = Promise.resolve();
 
   function clearWorkoutTimerState() {
     if (workoutTimer) {
@@ -130,7 +134,7 @@
   function summarizeExercise(exercise) {
     if (!exercise) return '未設定';
     if (exercise.isCardio) {
-      return `${safeNumber(exercise.durationMin || 0, 0)}分`;
+      return `速度${safeNumber(exercise.speed, 5)}km/h × ${safeNumber(exercise.durationMin || 0, 0)}分`;
     }
     const firstSet = exercise.sets?.[0] || {};
     return formatTriplet(safeNumber(firstSet.weight, 0), safeNumber(firstSet.reps, 0), exercise.sets?.length || 0);
@@ -1114,7 +1118,9 @@
     const total = exercise.sets?.length || 0;
     const currentLine = summarizeExercise(exercise);
     const previousLine = exercise.previous
-      ? (exercise.isCardio ? `${safeNumber(exercise.previous.durationMin || exercise.previous.reps, 0)}分` : formatTriplet(exercise.previous.weight || 0, exercise.previous.reps || 0, exercise.previous.sets || total))
+      ? (exercise.isCardio
+        ? `速度${safeNumber(exercise.previous.speed, 5)}km/h × ${safeNumber(exercise.previous.durationMin || exercise.previous.reps, 0)}分`
+        : formatTriplet(exercise.previous.weight || 0, exercise.previous.reps || 0, exercise.previous.sets || total))
       : '履歴なし';
     const recommendedLine = exercise.isCardio
       ? `速度${safeNumber(exercise.speed, 5)}km/h × ${safeNumber(exercise.durationMin, 10)}分`
@@ -1156,7 +1162,7 @@
           <div class="reboot-set-table">
             <div class="reboot-set-row">
               <div class="reboot-set-label">速度</div>
-              <div class="reboot-set-inputs">
+              <div class="reboot-set-inputs reboot-cardio-inputs">
                 <input class="form-input" type="number" inputmode="decimal" min="0" step="0.5" value="${h(editableNumberValue(exercise.speed, 5))}"
                   oninput="App.Views.Workout.updateCardio(${index}, 'speed', this.value)">
                 <span>km/h</span>
@@ -1164,7 +1170,7 @@
             </div>
             <div class="reboot-set-row">
               <div class="reboot-set-label">時間</div>
-              <div class="reboot-set-inputs">
+              <div class="reboot-set-inputs reboot-cardio-inputs">
                 <input class="form-input" type="number" inputmode="numeric" min="1" step="1" value="${h(editableNumberValue(exercise.durationMin, 10))}"
                   oninput="App.Views.Workout.updateCardio(${index}, 'durationMin', this.value)">
                 <span>分</span>
@@ -1578,7 +1584,20 @@
       if (footer) footer.textContent = `${progress.requiredDone}/${progress.requiredTotal}種目完了`;
     },
 
-    async _autoSave() {
+    _autoSave() {
+      const run = async () => {
+        try {
+          await this._persistWorkoutDraft();
+        } catch (error) {
+          console.error('[Workout] Draft save failed:', error);
+          this._updateDraftStatus('保存失敗');
+        }
+      };
+      workoutLocalSaveChain = workoutLocalSaveChain.then(run, run);
+      return workoutLocalSaveChain;
+    },
+
+    async _persistWorkoutDraft() {
       const today = App.Utils.today();
       this._updateDraftStatus('下書き保存中');
       if (!currentWorkoutId) {
@@ -1588,9 +1607,65 @@
           startTime: workoutStartTime ? new Date(workoutStartTime).toTimeString().slice(0, 5) : '',
           endTime: ''
         });
+      } else {
+        const existing = await App.DB.getWorkout(currentWorkoutId);
+        await App.DB.saveWorkout({
+          ...(existing || {}),
+          id: currentWorkoutId,
+          date: today,
+          type: currentWorkoutType || existing?.type || 'custom',
+          startTime: existing?.startTime || (workoutStartTime ? new Date(workoutStartTime).toTimeString().slice(0, 5) : ''),
+          endTime: existing?.endTime || ''
+        });
       }
       await App.DB.saveExercises(currentWorkoutId, currentExercises);
       this._updateDraftStatus('下書き保存済み');
+      this._queueCloudSave(today);
+    },
+
+    _queueCloudSave(dateStr) {
+      if (workoutCloudSaveTimer) clearTimeout(workoutCloudSaveTimer);
+      this._updateDraftStatus('同期待ち');
+      workoutCloudSaveTimer = setTimeout(() => {
+        workoutCloudSaveTimer = null;
+        this._flushCloudSave(dateStr);
+      }, 900);
+    },
+
+    async _flushCloudSave(dateStr) {
+      if (!dateStr) return { ok: false, error: 'date required' };
+      if (workoutCloudSaveTimer) {
+        clearTimeout(workoutCloudSaveTimer);
+        workoutCloudSaveTimer = null;
+      }
+      if (workoutCloudSaveInFlight) {
+        workoutCloudSaveAgain = true;
+        return { ok: false, error: 'sync in flight' };
+      }
+
+      workoutCloudSaveInFlight = true;
+      this._updateDraftStatus('同期中');
+      try {
+        const result = await App.DB.pushToCloud(dateStr);
+        if (result.ok) {
+          this._updateDraftStatus('同期済み');
+        } else if (result.error === 'Sync URL未設定') {
+          this._updateDraftStatus('同期URL未設定');
+        } else {
+          this._updateDraftStatus('未送信');
+        }
+        return result;
+      } catch (error) {
+        console.error('[Workout] Cloud save failed:', error);
+        this._updateDraftStatus('未送信');
+        return { ok: false, error: error.message };
+      } finally {
+        workoutCloudSaveInFlight = false;
+        if (workoutCloudSaveAgain) {
+          workoutCloudSaveAgain = false;
+          this._queueCloudSave(dateStr);
+        }
+      }
     },
 
     updateSet(exerciseIndex, setIndex, field, value) {
@@ -1965,6 +2040,10 @@
     },
 
     destroy() {
+      if (workoutCloudSaveTimer) {
+        const dateStr = App.Utils.today();
+        this._flushCloudSave(dateStr);
+      }
       this.dismissRestTimer();
       this._manualMenuType = null;
       currentExercises = [];
@@ -2449,6 +2528,11 @@
 
   function h(value) {
     return App.Utils.escapeHtml(value == null ? '' : String(value));
+  }
+
+  function safeNumber(value, fallback = 0) {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
   }
 
   function workoutKind(type) {
@@ -3168,12 +3252,14 @@
           </div>
           <div class="reboot-link-list">
             ${exercises.map(exercise => {
-              if (exercise.durationMin) {
-                return `<div class="reboot-list-card"><div><strong>${h(exercise.name)}</strong><span>${h(exercise.durationMin)}分</span></div><div class="reboot-list-aside"><span>${exercise.sets?.[0]?.completed ? '完了' : '未完'}</span></div></div>`;
+              if (exercise.isCardio || exercise.durationMin) {
+                const cardioLine = `速度${safeNumber(exercise.speed, 5)}km/h × ${safeNumber(exercise.durationMin, 0)}分`;
+                return `<div class="reboot-list-card reboot-workout-detail-line"><div class="reboot-workout-detail-main"><strong>${h(exercise.name)}</strong><span>${h(cardioLine)}</span></div><div class="reboot-list-aside"><span>${exercise.sets?.[0]?.completed ? '完了' : '未完'}</span></div></div>`;
               }
               const sets = exercise.sets || [];
               const first = sets[0] || {};
-              return `<div class="reboot-list-card"><div><strong>${h(exercise.name)}</strong><span>${h((first.weight || 0) > 0 ? `${first.weight}kg × ${first.reps}回 × ${sets.length}セット` : `${first.reps || 0}回 × ${sets.length}セット`)}</span></div><div class="reboot-list-aside"><span>${sets.filter(set => set.completed).length}/${sets.length} 完了</span></div></div>`;
+              const strengthLine = (first.weight || 0) > 0 ? `${first.weight}kg × ${first.reps}回 × ${sets.length}セット` : `${first.reps || 0}回 × ${sets.length}セット`;
+              return `<div class="reboot-list-card reboot-workout-detail-line"><div class="reboot-workout-detail-main"><strong>${h(exercise.name)}</strong><span>${h(strengthLine)}</span></div><div class="reboot-list-aside"><span>${sets.filter(set => set.completed).length}/${sets.length} 完了</span></div></div>`;
             }).join('')}
           </div>
         </div>`;

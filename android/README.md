@@ -1,41 +1,47 @@
-# Steady Android Wrapper
+# Steady Android Health Sync
 
-このプロジェクトは、既存のPWA「Steady」に対して、Androidの Health Connect SDK連携を追加するためのネイティブラッパーです。
+このAndroidアプリは、画面操作用のPWAではありません。
+スマホ側の役割は Health Connect のデータを取得して、Google Apps Script / Googleスプレッドシートへ送る同期専用アプリです。
 
-## 特徴
-- PWA本体はそのまま（WebView経由で表示）
-- ネイティブレイヤーで Health Connect API を叩く
-- JavaScriptBridge (`window.SteadyBridge`) を介してPWAにデータを流し込む
-- 自動同期に対応できるよう Room データベースを内蔵
+## 役割
 
-## ビルド環境
-- Android Studio Iguana / Jellyfish 以降を推奨
-- ターゲット API: 34 (Android 14)
-- 必須: 端末に Health Connect アプリがインストールされていること（Android 14以降はシステム標準）
+- Health Connect から歩数・睡眠・平均心拍・安静時心拍を取得
+- Room に直近データを保存
+- WorkManager で15分間隔のバックグラウンド同期を登録
+- 端末再起動後は BootReceiver で同期Workerを再登録
+- 画面は同期状態、今日の取得値、手動同期、権限付与のみ
 
-## 連携確認手順
+## 使わないもの
 
-1. **PC側の準備（開発時のみ）**
-   PWA側の開発サーバーを `localhost:3000` で立ち上げておきます。
-   ```bash
-   npx serve . -l 3000 --cors
-   ```
+- WebView
+- `PwaBridge`
+- `window.SteadyBridge`
+- `app/src/main/assets`
 
-2. **Android側エミュレータ準備**
-   - エミュレータでブラウザを開き、Play ストアから「Health Connect」アプリをインストールします。（あるいは Android 14 のエミュレータを使用）
-   - Health Connectアプリ内でモックの步数や睡眠データを登録しておきます。
+Web UI は GitHub Pages 側で使います。Android APK には root の HTML/CSS/JS を入れません。
 
-3. **Android Studio でビルド・実行**
-   - Android Studio で `d:\デスクトップ\アプリ\健康管理\android` を開く
-   - Gradle Sync を実行
-   - エミュレータでアプリを実行
-   - **注意:** エミュレータの `10.0.2.2` はPCの `localhost` に繋がります。
+## GAS API
 
-4. **アプリでの確認**
-   - 画面が立ち上がり、PWAが表示されます。
-   - 初期起動時に設定画面へ誘導され、「権限を許可」ボタンが表示されます。
-   - ボタンを押して Health Connect の権限を全て許可してください。
-   - もう一度「🔄 今すぐ同期」を押すか、ホームに戻るとデータが最新のものに更新されます。
+同期先は `Constants.kt` の `GAS_API_URL` です。
 
-## 製品版ビルドへの切り替え
-リリース時は、`Constants.kt` の `PWA_URL` を変更し、PWAのHTML/JS/CSSファイルを `app/src/main/assets/` にパッキングすることで、スタンドアロンのAndroidアプリとして配布可能です。
+```kotlin
+const val GAS_API_URL = "https://script.google.com/macros/s/AKfycbzNwWhfiS536TNOe3-sq9gipfR2hfcMpQf1PkuK-nzTQP5QYnfaijfJNJ1VKsULQRlbZA/exec"
+```
+
+## ビルド
+
+1. Android Studio で `D:\デスクトップ\アプリ\健康管理\android` を開く
+2. Gradle Sync
+3. `Build > Build APK(s)`
+4. スマホにインストール
+5. アプリを開いて Health Connect 権限を付与
+
+## 動作確認
+
+- アプリ画面で「Health Connect 接続済み」になる
+- 「今すぐ同期」で今日の値が取得される
+- スプレッドシートの `health_daily` に `source = health_connect` で保存される
+- アプリを閉じても WorkManager がバックグラウンドで同期する
+- 端末再起動後も BootReceiver により同期が再登録される
+
+Androidのバックグラウンド実行はOSの省電力制御を受けます。15分は最短間隔で、実行時刻は端末状態により前後します。

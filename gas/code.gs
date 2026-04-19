@@ -543,10 +543,12 @@ function _appendWorkoutDetails(d) {
     var ex = exercises[ei];
     var sets = Array.isArray(ex.sets) ? ex.sets : [];
     if (ex.isCardio) {
+      var cardioSpeed = Number(ex.speed) || 5;
+      var cardioMinutes = Number(ex.durationMin) || 0;
       sheet.appendRow([
         d.date, d.workoutType||'', ex.name||'', 1, 0, 0,
         1, sets[0] && sets[0].completed ? 'yes' : 'no', 0, 0,
-        (ex.durationMin || 0) + '分',
+        cardioSpeed + 'km/h × ' + cardioMinutes + '分',
         d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
       ]);
     } else {
@@ -826,6 +828,8 @@ function _getAll() {
       var targetReps = _numberOrNull(detail.targetReps);
       var note = detail.note || '';
       var isCardio = _looksLikeDurationNote(note) || (weight === 0 && reps === 0 && Number(detail.setCount) === 1);
+      var cardioDuration = isCardio ? (_extractMinutes(note) || (reps != null && reps > 0 ? reps : 0)) : 0;
+      var cardioSpeed = isCardio ? (_extractSpeed(note) || (weight != null && weight > 0 ? weight : 5)) : 0;
       var current = currentByDate[wd];
       var shouldStartExercise = !current
         || current.name !== exerciseName
@@ -836,7 +840,8 @@ function _getAll() {
           name: exerciseName,
           sets: [],
           isCardio: isCardio,
-          durationMin: isCardio ? _extractMinutes(note) : 0,
+          durationMin: cardioDuration,
+          speed: cardioSpeed,
           recommended: {
             weight: targetWeight != null ? targetWeight : 0,
             reps: targetReps != null ? targetReps : 0,
@@ -856,7 +861,10 @@ function _getAll() {
         completed: _isYes(detail.completed)
       });
       current._lastSetIndex = setIndex;
-      if (isCardio) current.durationMin = current.durationMin || _extractMinutes(note);
+      if (isCardio) {
+        current.durationMin = current.durationMin || cardioDuration;
+        current.speed = current.speed || cardioSpeed;
+      }
 
       if (detail.updatedAt && _safeDateTs(detail.updatedAt) > _safeDateTs(byDate[wd].updatedAt)) {
         byDate[wd].updatedAt = detail.updatedAt;
@@ -1224,6 +1232,12 @@ function _looksLikeDurationNote(v) {
 function _extractMinutes(v) {
   if (_isBlankCell(v)) return 0;
   var m = String(v).match(/(\d+)\s*(分|min)/i);
+  return m ? Number(m[1]) || 0 : 0;
+}
+
+function _extractSpeed(v) {
+  if (_isBlankCell(v)) return 0;
+  var m = String(v).match(/(\d+(?:\.\d+)?)\s*km\s*\/?\s*h/i);
   return m ? Number(m[1]) || 0 : 0;
 }
 

@@ -13,6 +13,38 @@
       return isNaN(t) ? 0 : t;
     },
 
+    _num(v, fallback = 0) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    },
+
+    _exerciseSignature(exercises) {
+      const list = Array.isArray(exercises) ? exercises : [];
+      return JSON.stringify(list.map(ex => {
+        const isCardio = !!(ex?.isCardio || ex?.durationMin);
+        const sets = Array.isArray(ex?.sets) ? ex.sets : [];
+        return {
+          name: ex?.name || '',
+          isCardio,
+          durationMin: isCardio ? this._num(ex?.durationMin, 0) : 0,
+          speed: isCardio ? this._num(ex?.speed, 5) : 0,
+          setCount: sets.length,
+          recommendedSets: this._num(ex?.recommended?.sets, 0),
+          sets: sets.map(set => ({
+            setNumber: this._num(set?.setNumber, 0),
+            weight: this._num(set?.weight, 0),
+            reps: this._num(set?.reps, 0),
+            completed: !!set?.completed
+          }))
+        };
+      }));
+    },
+
+    _hasRemoteExerciseChange(remoteExercises, localExercises) {
+      if (!Array.isArray(remoteExercises) || remoteExercises.length === 0) return false;
+      return this._exerciseSignature(remoteExercises) !== this._exerciseSignature(localExercises);
+    },
+
     init(url) {
       this._url = url;
     },
@@ -172,7 +204,7 @@
           (remoteData.health.heartRateAvg != null && localData.health.heartRateAvg == null) ||
           (remoteData.health.restingHeartRate != null && localData.health.restingHeartRate == null)
         );
-        const hasExerciseGap = localData && Array.isArray(remoteData.exercises) && remoteData.exercises.length > 0 && (
+        const hasExerciseChange = localData && Array.isArray(remoteData.exercises) && remoteData.exercises.length > 0 && (
           !Array.isArray(localData.exercises) ||
           localData.exercises.length < remoteData.exercises.length ||
           localData.exercises.some((ex, index) => {
@@ -180,11 +212,12 @@
             return !Array.isArray(ex.sets) ||
               ex.sets.length === 0 ||
               (remoteExercise.recommended?.sets != null && ex.recommended?.sets == null);
-          })
+          }) ||
+          this._hasRemoteExerciseChange(remoteData.exercises, localData.exercises)
         );
 
-        if (remoteNewer || hasLocalGap || hasHealthFieldGap || hasExerciseGap) {
-          console.log(`Updating local data for ${remoteData.date} from remote. (newer=${remoteNewer}, gap=${hasLocalGap}, healthGap=${hasHealthFieldGap}, exerciseGap=${hasExerciseGap})`);
+        if (remoteNewer || hasLocalGap || hasHealthFieldGap || hasExerciseChange) {
+          console.log(`Updating local data for ${remoteData.date} from remote. (newer=${remoteNewer}, gap=${hasLocalGap}, healthGap=${hasHealthFieldGap}, exerciseChange=${hasExerciseChange})`);
           remoteData._fromSync = true; 
           await window.App.DB.putDateSync(remoteData);
           updatedSomething = true;

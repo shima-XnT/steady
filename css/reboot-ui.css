@@ -462,9 +462,25 @@ body {
   align-items: flex-start;
 }
 
+.reboot-list-card > div:first-child,
+.reboot-workout-detail-main {
+  min-width: 0;
+}
+
+.reboot-list-card strong,
+.reboot-list-card span,
+.reboot-mini-stat strong {
+  overflow-wrap: anywhere;
+}
+
 .reboot-list-aside {
   text-align: right;
   min-width: 120px;
+  flex: 0 0 auto;
+}
+
+.reboot-workout-detail-line {
+  align-items: center;
 }
 
 .reboot-next-slot {
@@ -798,6 +814,12 @@ body {
   grid-template-columns: minmax(92px, 1fr) auto minmax(78px, 1fr) auto;
   gap: 10px;
   align-items: center;
+  min-width: 0;
+}
+
+.reboot-cardio-inputs {
+  grid-template-columns: minmax(120px, 180px) auto;
+  justify-content: start;
 }
 
 .reboot-set-inputs .form-input {
@@ -1121,6 +1143,9 @@ body {
   .reboot-metric-grid-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+  .reboot-exercise-card .reboot-metric-grid-3 {
+    grid-template-columns: 1fr;
+  }
   .reboot-area-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -1169,6 +1194,10 @@ body {
   .reboot-set-inputs {
     grid-template-columns: minmax(96px, 1fr) auto minmax(84px, 1fr) auto;
     gap: 8px;
+  }
+
+  .reboot-cardio-inputs {
+    grid-template-columns: minmax(120px, 1fr) auto;
   }
 
   .reboot-set-inputs .form-input {
@@ -1396,6 +1425,15 @@ body {
 @media (max-width: 430px) {
   .main-content {
     padding: 12px 12px calc(var(--nav-height) + 14px);
+  }
+
+  .reboot-workout-detail-line {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .reboot-workout-detail-line .reboot-list-aside {
+    text-align: left;
   }
 
   /* 枠間の余白 */
