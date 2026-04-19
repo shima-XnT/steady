@@ -1566,8 +1566,8 @@
 
                 <div class="reboot-inline-actions">
                   <button class="btn btn-secondary" type="button" onclick="App.Views.Workout.saveSkip()">${existingWorkout?.type === 'skip' ? '休み理由を更新' : '休みとして記録する'}</button>
-                  <button class="btn btn-primary" type="button" onclick="App.Views.Workout.forceMenu('short')">それでも短くやる</button>
-                  <button class="btn btn-ghost" type="button" onclick="App.Views.Workout.forceMenu('stretch')">ストレッチにする</button>
+                  <button class="btn btn-primary" type="button" onclick="${existingWorkout?.type === 'skip' ? "App.Views.Workout.resumeAfterSkip('short')" : "App.Views.Workout.forceMenu('short')"}">${existingWorkout?.type === 'skip' ? 'やっぱりやる' : 'それでも短くやる'}</button>
+                  <button class="btn btn-ghost" type="button" onclick="${existingWorkout?.type === 'skip' ? "App.Views.Workout.resumeAfterSkip('stretch')" : "App.Views.Workout.forceMenu('stretch')"}">${existingWorkout?.type === 'skip' ? '軽く動く' : 'ストレッチにする'}</button>
                 </div>
               </section>
             </div>
@@ -1710,8 +1710,11 @@
         });
       } else {
         const existing = await App.DB.getWorkout(currentWorkoutId);
-        const startAt = existing?.startAt || (workoutStartTime ? new Date(workoutStartTime).toISOString() : '');
-        const ended = !!(existing?.endAt || existing?.endTime || existing?.status === 'completed');
+        const convertingSkip = existing?.type === 'skip' && currentWorkoutType && currentWorkoutType !== 'skip';
+        const startAt = convertingSkip
+          ? (workoutStartTime ? new Date(workoutStartTime).toISOString() : '')
+          : (existing?.startAt || (workoutStartTime ? new Date(workoutStartTime).toISOString() : ''));
+        const ended = convertingSkip ? false : !!(existing?.endAt || existing?.endTime || existing?.status === 'completed');
         await App.DB.saveWorkout({
           ...(existing || {}),
           id: currentWorkoutId,
@@ -1720,8 +1723,12 @@
           status: ended ? (existing?.status || 'completed') : (startAt ? 'in_progress' : (existing?.status || 'draft')),
           startAt,
           startTime: existing?.startTime || (workoutStartTime ? timerTimeLabel(workoutStartTime) : ''),
-          endAt: existing?.endAt || '',
-          endTime: existing?.endTime || ''
+          endAt: convertingSkip ? '' : (existing?.endAt || ''),
+          endTime: convertingSkip ? '' : (existing?.endTime || ''),
+          durationMinutes: convertingSkip ? 0 : (existing?.durationMinutes || 0),
+          feeling: convertingSkip ? '' : existing?.feeling,
+          memo: convertingSkip ? '' : (existing?.memo || ''),
+          skipReason: convertingSkip ? '' : (existing?.skipReason || '')
         });
       }
       await App.DB.saveExercises(currentWorkoutId, currentExercises);
@@ -1864,6 +1871,34 @@
       currentWorkoutId = null;
       currentExercises = [];
       App.refreshView();
+    },
+
+    async resumeAfterSkip(type = 'short') {
+      this._manualMenuType = type;
+      currentWorkoutId = null;
+      currentExercises = [];
+      await App.refreshView();
+
+      const today = App.Utils.today();
+      if (!workoutStartTime) {
+        setWorkoutTimerStart(Date.now(), today);
+      }
+      if (!workoutTimer) {
+        workoutTimer = setInterval(() => this._updateTimerDisplay(), 1000);
+      }
+      this._updateTimerDisplay();
+
+      try {
+        await this._persistWorkoutDraft();
+        const pushResult = await this._flushCloudSave(today);
+        if (pushResult.ok) {
+          App.Utils.showToast('休みを取り消して開始しました', 'success');
+        } else {
+          App.Utils.showToast('開始しました。未送信です', 'warning');
+        }
+      } catch (error) {
+        App.Utils.showToast(`開始に失敗しました: ${error.message}`, 'error');
+      }
     },
 
     startRestTimer(seconds) {
@@ -2017,7 +2052,8 @@
             endTime,
             durationMinutes,
             feeling,
-            memo
+            memo,
+            skipReason: ''
           }, currentExercises);
 
           const pushResult = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout', 'exercises'] });
@@ -2133,6 +2169,7 @@
             endTime: timerTimeLabel(Date.now()),
             feeling: 4,
             memo: 'ストレッチ完了',
+            skipReason: '',
             durationMinutes: 10
           });
           const pushResult = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout'] });

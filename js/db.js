@@ -194,6 +194,9 @@
       const rawId = payload.id;
       delete payload.id;
       payload.updatedAt = new Date().toISOString();
+      if (payload.type && payload.type !== 'skip') {
+        payload.skipReason = '';
+      }
 
       const numericId = Number(rawId);
       const hasValidId = rawId !== null && rawId !== undefined && rawId !== '' && Number.isFinite(numericId) && numericId > 0;
