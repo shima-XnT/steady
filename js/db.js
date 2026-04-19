@@ -540,6 +540,24 @@
           console.log(`[Sync] Pushed (immediate): ${dateStr}`);
           return { ok: true };
         } else if (res.conflict) {
+          // 競合: サーバーから最新リビジョンを取得して自動リトライ
+          console.warn(`[Sync] Conflict for ${dateStr}, auto-resolving...`);
+          try {
+            await window.App.Sync.SheetSyncManager.syncAll();
+            // リビジョンが更新されたので再送
+            const data2 = await this.getDateSyncData(dateStr);
+            data2.sourceDevice = window.SteadyBridge ? 'android' : 'pc';
+            const res2 = await window.App.Sync.SheetSyncManager.pushData(data2);
+            if (res2.ok) {
+              await this.removePendingDate(dateStr);
+              await this.setSetting('_lastSyncAt', new Date().toISOString());
+              console.log(`[Sync] Conflict auto-resolved for ${dateStr}`);
+              App.Utils?.showToast?.('同期しました', 'success');
+              return { ok: true };
+            }
+          } catch (retryErr) {
+            console.error('[Sync] Auto-resolve failed:', retryErr);
+          }
           App.Utils?.showToast?.('⚠️ データ競合: 再同期してください', 'warning');
           return { ok: false, conflict: true, error: res.error };
         } else {
