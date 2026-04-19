@@ -1,5 +1,5 @@
 // からだログ Service Worker
-const CACHE_NAME = 'steady-v79';
+const CACHE_NAME = 'steady-v81';
 const ASSET_PATHS = [
   'index.html',
   'css/index.css',

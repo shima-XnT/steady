@@ -69,10 +69,10 @@
             <div class="flex-row mt-12" style="flex-wrap:wrap;gap:8px;justify-content:center;">
               ${[
                 { cls: 'shift-off', label: '休み' },
-                { cls: 'shift-normal', label: '通常' },
-                { cls: 'shift-early', label: '早番' },
-                { cls: 'shift-late', label: '遅番' },
-                { cls: 'shift-night', label: '夜勤' }
+                { cls: 'shift-paid-leave', label: '有給' },
+                { cls: 'shift-normal', label: '通常勤務' },
+                { cls: 'shift-project', label: '案件あり勤務' },
+                { cls: 'shift-business-trip', label: '出張勤務' }
               ].map(l => `
                 <div class="flex-row gap-4">
                   <div style="width:12px;height:12px;border-radius:3px;" class="calendar-day ${l.cls}"></div>
@@ -94,11 +94,12 @@
               <h3 class="mb-12">テキスト一括入力</h3>
               <p class="text-sm text-muted mb-12">
                 以下の形式で入力してください：<br>
-                <code style="color:var(--primary-light);">YYYY-MM-DD 休み</code> or
+                <code style="color:var(--primary-light);">YYYY-MM-DD 休み</code> / <code style="color:var(--primary-light);">YYYY-MM-DD 有給</code> or
                 <code style="color:var(--primary-light);">YYYY-MM-DD HH:MM-HH:MM</code>
               </p>
               <textarea class="paste-area" id="schedule-paste" placeholder="2026-04-01 09:00-18:00
-2026-04-02 休み
+2026-04-02 有給
+2026-04-03 休み
 2026-04-03 13:00-22:00
 2026-04-04 07:00-16:00
 2026-04-05 09:00-18:00"></textarea>
@@ -142,12 +143,12 @@
     },
 
     _shiftShort(type) {
-      const map = { off: '休', normal: '通', early: '早', late: '遅', night: '夜', remote: '在' };
+      const map = { off: '休', paid_leave: '有', normal: '通', project: '案', business_trip: '出', early: '早', late: '遅', night: '夜', remote: '在' };
       return map[type] || '?';
     },
 
     _shiftFull(s) {
-      const labels = { off: '休み', normal: '通常勤務', early: '早番', late: '遅番', night: '夜勤', remote: 'リモート' };
+      const labels = { off: '休み', paid_leave: '有給', normal: '通常勤務', project: '案件あり勤務', business_trip: '出張勤務', early: '早番', late: '遅番', night: '夜勤', remote: '在宅' };
       let text = labels[s.shiftType] || s.shiftType;
       if (s.startTime && s.endTime) {
         text += ` (${App.Utils.normTime(s.startTime)}〜${App.Utils.normTime(s.endTime)})`;
@@ -156,7 +157,7 @@
     },
 
     _shiftBadge(type) {
-      const map = { off: 'success', normal: 'info', early: 'info', late: 'warning', night: 'danger', remote: 'primary' };
+      const map = { off: 'success', paid_leave: 'success', normal: 'info', project: 'warning', business_trip: 'primary', early: 'info', late: 'warning', night: 'danger', remote: 'primary' };
       return map[type] || 'muted';
     },
 
@@ -172,11 +173,12 @@
           <div class="form-group">
             <div class="form-label">勤務タイプ</div>
             <select class="form-select" id="modal-shift-type">
-              ${['off', 'normal', 'early', 'late', 'night', 'remote'].map(t => `
+              ${['off', 'paid_leave', 'normal', 'project', 'business_trip'].map(t => `
                 <option value="${t}" ${s.shiftType === t ? 'selected' : ''}>${this._shiftFull({ shiftType: t })}</option>`).join('')}
+              ${!['off', 'paid_leave', 'normal', 'project', 'business_trip'].includes(s.shiftType) ? `<option value="${s.shiftType}" selected>${this._shiftFull(s)}（過去データ）</option>` : ''}
             </select>
           </div>
-          <div id="modal-time-inputs" class="${s.shiftType === 'off' ? 'hidden' : ''}">
+          <div id="modal-time-inputs" class="${s.shiftType === 'off' || s.shiftType === 'paid_leave' ? 'hidden' : ''}">
             <div class="grid-2">
               <div class="form-group">
                 <div class="form-label">開始時刻</div>
@@ -185,6 +187,18 @@
               <div class="form-group">
                 <div class="form-label">終了時刻</div>
                 <input type="time" class="form-input" id="modal-end-time" value="${App.Utils.normTime(s.endTime) || '18:00'}">
+              </div>
+            </div>
+          </div>
+          <div id="modal-trip-inputs" class="${s.shiftType === 'business_trip' ? '' : 'hidden'}">
+            <div class="grid-2">
+              <div class="form-group">
+                <div class="form-label">行き先</div>
+                <input type="text" class="form-input" id="modal-destination" value="${App.Utils.escapeHtml(s.destination || '')}" placeholder="例: 名古屋">
+              </div>
+              <div class="form-group">
+                <div class="form-label">ホテル名</div>
+                <input type="text" class="form-input" id="modal-hotel-name" value="${App.Utils.escapeHtml(s.hotelName || '')}" placeholder="例: 駅前ホテル">
               </div>
             </div>
           </div>
@@ -201,16 +215,18 @@
         // シフトタイプ変更で時刻入力の表示切替
         document.getElementById('modal-shift-type').addEventListener('change', (e) => {
           const timeDiv = document.getElementById('modal-time-inputs');
-          if (e.target.value === 'off') {
+          const tripDiv = document.getElementById('modal-trip-inputs');
+          if (e.target.value === 'off' || e.target.value === 'paid_leave') {
             timeDiv.classList.add('hidden');
           } else {
             timeDiv.classList.remove('hidden');
             // デフォルト時間をセット
-            const defaults = { normal: ['09:00','18:00'], early: ['07:00','16:00'], late: ['13:00','22:00'], night: ['22:00','07:00'], remote: ['09:00','18:00'] };
+            const defaults = { normal: ['09:00','18:00'], project: ['09:00','18:00'], business_trip: ['09:00','18:00'] };
             const def = defaults[e.target.value] || ['09:00','18:00'];
             document.getElementById('modal-start-time').value = def[0];
             document.getElementById('modal-end-time').value = def[1];
           }
+          if (tripDiv) tripDiv.classList.toggle('hidden', e.target.value !== 'business_trip');
         });
 
         document.getElementById('modal-save-btn').addEventListener('click', async () => {
@@ -222,9 +238,11 @@
             await App.DB.upsertSchedule({
               date: dateStr,
               shiftType,
-              startTime: shiftType === 'off' ? '' : document.getElementById('modal-start-time').value,
-              endTime: shiftType === 'off' ? '' : document.getElementById('modal-end-time').value,
-              note: document.getElementById('modal-note').value
+              startTime: shiftType === 'off' || shiftType === 'paid_leave' ? '' : document.getElementById('modal-start-time').value,
+              endTime: shiftType === 'off' || shiftType === 'paid_leave' ? '' : document.getElementById('modal-end-time').value,
+              note: document.getElementById('modal-note').value,
+              destination: shiftType === 'business_trip' ? document.getElementById('modal-destination').value.trim() : '',
+              hotelName: shiftType === 'business_trip' ? document.getElementById('modal-hotel-name').value.trim() : ''
             });
             const pushRes = await App.DB.pushToCloud(dateStr, { sections: ['schedule'] });
             close();
@@ -324,15 +342,39 @@
         // YYYY-MM-DD 休み
         const offMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(休み|休日|off)/i);
         if (offMatch) {
-          await App.DB.upsertSchedule({ date: offMatch[1], shiftType: 'off', startTime: '', endTime: '' });
+          await App.DB.upsertSchedule({ date: offMatch[1], shiftType: 'off', startTime: '', endTime: '', destination: '', hotelName: '' });
           count++;
           continue;
         }
 
-        // YYYY-MM-DD リモート
-        const remoteMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(リモート|remote|在宅)/i);
-        if (remoteMatch) {
-          await App.DB.upsertSchedule({ date: remoteMatch[1], shiftType: 'remote', startTime: '09:00', endTime: '18:00' });
+        const paidLeaveMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(有給|有休|paid|paid_leave)/i);
+        if (paidLeaveMatch) {
+          await App.DB.upsertSchedule({ date: paidLeaveMatch[1], shiftType: 'paid_leave', startTime: '', endTime: '', destination: '', hotelName: '' });
+          count++;
+          continue;
+        }
+
+        const tripMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(出張|trip|business_trip)(?:\s+(.+?))?(?:\s+(\d{1,2}:\d{2})\s*[-〜~]\s*(\d{1,2}:\d{2}))?$/i);
+        if (tripMatch) {
+          const [, date, , placeText = '', start = '09:00', end = '18:00'] = tripMatch;
+          const [destination = '', hotelName = ''] = placeText.split(/\s*[/／]\s*/).map(value => value.trim());
+          await App.DB.upsertSchedule({ date, shiftType: 'business_trip', startTime: start.padStart(5, '0'), endTime: end.padStart(5, '0'), destination, hotelName, note: '' });
+          count++;
+          continue;
+        }
+
+        const projectMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(案件あり|案件|project)(?:\s+(\d{1,2}:\d{2})\s*[-〜~]\s*(\d{1,2}:\d{2}))?/i);
+        if (projectMatch) {
+          const [, date, , start = '09:00', end = '18:00'] = projectMatch;
+          await App.DB.upsertSchedule({ date, shiftType: 'project', startTime: start.padStart(5, '0'), endTime: end.padStart(5, '0'), destination: '', hotelName: '', note: '' });
+          count++;
+          continue;
+        }
+
+        const normalMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(通常|通常勤務|normal)(?:\s+(\d{1,2}:\d{2})\s*[-〜~]\s*(\d{1,2}:\d{2}))?/i);
+        if (normalMatch) {
+          const [, date, , start = '09:00', end = '18:00'] = normalMatch;
+          await App.DB.upsertSchedule({ date, shiftType: 'normal', startTime: start.padStart(5, '0'), endTime: end.padStart(5, '0'), destination: '', hotelName: '', note: '' });
           count++;
           continue;
         }
@@ -341,18 +383,13 @@
         const timeMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})\s*[-〜~]\s*(\d{1,2}:\d{2})/);
         if (timeMatch) {
           const [, date, start, end] = timeMatch;
-          const startMin = App.Utils.timeToMinutes(start);
-          let shiftType = 'normal';
-          if (startMin <= 7 * 60) shiftType = 'early';
-          else if (startMin >= 12 * 60) shiftType = 'late';
-          const endMin = App.Utils.timeToMinutes(end);
-          if (endMin <= 7 * 60 || startMin >= 20 * 60) shiftType = 'night';
-
           await App.DB.upsertSchedule({
             date,
-            shiftType,
+            shiftType: 'normal',
             startTime: start.padStart(5, '0'),
-            endTime: end.padStart(5, '0')
+            endTime: end.padStart(5, '0'),
+            destination: '',
+            hotelName: ''
           });
           count++;
           continue;

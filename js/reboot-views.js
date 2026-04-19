@@ -55,11 +55,10 @@
 
   const SHIFT_PRESETS = {
     off: { label: '休み', start: '', end: '' },
-    normal: { label: '通常', start: '09:00', end: '18:00' },
-    early: { label: '早番', start: '07:00', end: '16:00' },
-    late: { label: '遅番', start: '13:00', end: '22:00' },
-    night: { label: '夜勤', start: '22:00', end: '07:00' },
-    remote: { label: '在宅', start: '09:00', end: '18:00' }
+    paid_leave: { label: '有給', start: '', end: '' },
+    normal: { label: '通常勤務', start: '09:00', end: '18:00' },
+    project: { label: '案件あり勤務', start: '09:00', end: '18:00' },
+    business_trip: { label: '出張勤務', start: '09:00', end: '18:00' }
   };
 
   const WORKOUT_TIMER_START_KEY = 'steady_workout_timer_start';
@@ -492,10 +491,10 @@
         continue;
       }
 
-      if (schedule.shiftType === 'off') {
+      if (isRestShiftType(schedule.shiftType)) {
         return {
           date,
-          label: '休み',
+          label: shiftLabel(schedule.shiftType),
           note: 'いちばん動きやすい候補です。'
         };
       }
@@ -575,7 +574,10 @@
       const data = await buildDashboardData();
       this._data = data;
 
-      const scheduleLine = data.schedule ? `${shiftLabel(data.schedule.shiftType)} / ${App.FinalPolish.formatShiftRange(data.schedule).replace(/\s+/g, ' ').trim()}` : '未設定';
+      const schedulePlace = schedulePlaceLine(data.schedule);
+      const scheduleLine = data.schedule
+        ? `${shiftLabel(data.schedule.shiftType)} / ${App.FinalPolish.formatShiftRange(data.schedule).replace(/\s+/g, ' ').trim()}${schedulePlace ? ` / ${schedulePlace}` : ''}`
+        : '未設定';
       const todayState = data.workout
         ? (data.workout.type === 'skip' ? '休み記録済み' : 'ワークアウト記録済み')
         : (data.judgment ? '判定済み / 記録待ち' : '未判定');
@@ -956,6 +958,12 @@
                     <span>時間</span>
                     <strong>${h(schedule ? App.FinalPolish.formatShiftRange(schedule).replace(/\s+/g, ' ').trim() : '未設定')}</strong>
                   </div>
+                  ${schedulePlaceLine(schedule) ? `
+                    <div class="reboot-stat-row">
+                      <span>出張先</span>
+                      <strong>${h(schedulePlaceLine(schedule))}</strong>
+                    </div>
+                  ` : ''}
                   <div class="reboot-stat-row">
                     <span>使える時間</span>
                     <strong>${h(formatMinutes(availableMinutes(schedule)))}</strong>
@@ -2386,40 +2394,59 @@
         ${schedules
           .slice()
           .sort((a, b) => a.date.localeCompare(b.date))
-          .map(schedule => `
-            <button class="reboot-list-card reboot-schedule-row" onclick="App.Views.WorkSchedule.openDate('${schedule.date}')">
-              <div class="reboot-schedule-date-block">
-                <strong>${h(App.Utils.formatDate(schedule.date))}</strong>
-                <span>${h(schedule.date)}</span>
-              </div>
-              <div class="reboot-schedule-main">
-                <strong>${h(shiftLabel(schedule.shiftType))}</strong>
-                <span>${h(App.FinalPolish.formatShiftRange(schedule).replace(/\s+/g, ' ').trim() || '時刻未設定')}</span>
-              </div>
-              <div class="reboot-list-aside">
-                <span>${h(schedule.note || 'メモなし')}</span>
-                <small>${h(schedule.date === App.Utils.today() ? '今日' : App.Utils.getDayOfWeek(schedule.date))}</small>
-              </div>
-            </button>`)
+          .map(schedule => {
+            const placeLine = schedulePlaceLine(schedule);
+            return `
+              <button class="reboot-list-card reboot-schedule-row" onclick="App.Views.WorkSchedule.openDate('${schedule.date}')">
+                <div class="reboot-schedule-date-block">
+                  <strong>${h(App.Utils.formatDate(schedule.date))}</strong>
+                  <span>${h(schedule.date)}</span>
+                </div>
+                <div class="reboot-schedule-main">
+                  <strong>${h(shiftLabel(schedule.shiftType))}</strong>
+                  <span>${h(App.FinalPolish.formatShiftRange(schedule).replace(/\s+/g, ' ').trim() || '時刻未設定')}</span>
+                </div>
+                <div class="reboot-list-aside">
+                  <span>${h(placeLine || schedule.note || 'メモなし')}</span>
+                  <small>${h(schedule.date === App.Utils.today() ? '今日' : App.Utils.getDayOfWeek(schedule.date))}</small>
+                </div>
+              </button>`;
+          })
           .join('')}
       </div>`;
   }
 
-  function summarizeMonthSchedules(schedules) {
-    const summary = {
-      total: schedules.length,
-      off: 0,
-      working: 0,
-      lateOrNight: 0,
-      remote: 0
-    };
+  function schedulePlaceLine(schedule) {
+    if (!schedule || schedule.shiftType !== 'business_trip') return '';
+    const parts = [];
+    if (schedule.destination) parts.push(`行き先: ${schedule.destination}`);
+    if (schedule.hotelName) parts.push(`ホテル: ${schedule.hotelName}`);
+    return parts.join(' / ');
+  }
 
-    schedules.forEach(schedule => {
-      if (schedule.shiftType === 'off') summary.off += 1;
-      else summary.working += 1;
-      if (schedule.shiftType === 'late' || schedule.shiftType === 'night') summary.lateOrNight += 1;
-      if (schedule.shiftType === 'remote') summary.remote += 1;
-    });
+  function isRestShiftType(type) {
+    return type === 'off' || type === 'paid_leave';
+  }
+
+  function isLegacyShiftType(type) {
+    return !!type && !Object.prototype.hasOwnProperty.call(SHIFT_PRESETS, type);
+  }
+
+  function summarizeMonthSchedules(schedules) {
+      const summary = {
+        total: schedules.length,
+        off: 0,
+        working: 0,
+        project: 0,
+        trip: 0
+      };
+
+      schedules.forEach(schedule => {
+        if (isRestShiftType(schedule.shiftType)) summary.off += 1;
+        else summary.working += 1;
+        if (schedule.shiftType === 'project') summary.project += 1;
+        if (schedule.shiftType === 'business_trip') summary.trip += 1;
+      });
 
     return summary;
   }
@@ -2453,6 +2480,10 @@
       }
 
       const selectedSchedule = await App.DB.getSchedule(this._selectedDate);
+      const selectedShiftType = selectedSchedule?.shiftType || 'normal';
+      const selectedIsLegacy = isLegacyShiftType(selectedShiftType);
+      const selectedPreset = SHIFT_PRESETS[selectedShiftType] || SHIFT_PRESETS.normal;
+      const selectedPlaceLine = schedulePlaceLine(selectedSchedule);
 
       return `
         <div class="container animate-in reboot-shell reboot-schedule-shell">
@@ -2497,19 +2528,19 @@
                     <small>登録済み</small>
                   </article>
                   <article class="reboot-stat-card">
-                    <span>休み</span>
+                    <span>休み / 有給</span>
                     <strong>${monthSummary.off}</strong>
                     <small>回復日</small>
                   </article>
                   <article class="reboot-stat-card">
-                    <span>遅 / 夜</span>
-                    <strong>${monthSummary.lateOrNight}</strong>
-                    <small>負荷高め</small>
+                    <span>案件あり</span>
+                    <strong>${monthSummary.project}</strong>
+                    <small>移動多め</small>
                   </article>
                   <article class="reboot-stat-card">
-                    <span>在宅</span>
-                    <strong>${monthSummary.remote}</strong>
-                    <small>移動少なめ</small>
+                    <span>出張</span>
+                    <strong>${monthSummary.trip}</strong>
+                    <small>宿泊あり</small>
                   </article>
                 </div>
 
@@ -2543,32 +2574,50 @@
                   </div>
                   <span class="reboot-pill reboot-pill-neutral" id="schedule-selected-shift">${h(shiftLabel(selectedSchedule?.shiftType || 'normal'))}</span>
                 </div>
+                <input type="hidden" id="schedule-current-shift" value="${h(selectedShiftType)}">
 
                 <div class="reboot-shift-grid">
                   ${Object.entries(SHIFT_PRESETS).map(([type, preset]) => `
                     <button type="button"
-                      class="reboot-shift-chip ${(selectedSchedule?.shiftType || 'normal') === type ? 'selected' : ''}"
+                      class="reboot-shift-chip ${selectedShiftType === type ? 'selected' : ''}"
                       data-shift-type="${type}">
                       ${h(preset.label)}
                     </button>`).join('')}
                 </div>
+                ${selectedIsLegacy ? `
+                  <p class="reboot-inline-note">過去の勤務種別「${h(shiftLabel(selectedShiftType))}」はそのまま保存できます。変更する場合は上の種別を選んでください。</p>
+                ` : ''}
 
-                <div id="schedule-time-wrap" class="${(selectedSchedule?.shiftType || 'normal') === 'off' ? 'hidden' : ''}">
+                <div id="schedule-time-wrap" class="${isRestShiftType(selectedShiftType) ? 'hidden' : ''}">
                   <div class="grid-2">
                     <label class="reboot-field-block">
                       <span>開始時刻</span>
-                      <input id="schedule-start-time" class="form-input" type="time" value="${h(selectedSchedule?.startTime || SHIFT_PRESETS[selectedSchedule?.shiftType || 'normal']?.start || '09:00')}">
+                      <input id="schedule-start-time" class="form-input" type="time" value="${h(selectedSchedule?.startTime || selectedPreset.start || '09:00')}">
                     </label>
                     <label class="reboot-field-block">
                       <span>終了時刻</span>
-                      <input id="schedule-end-time" class="form-input" type="time" value="${h(selectedSchedule?.endTime || SHIFT_PRESETS[selectedSchedule?.shiftType || 'normal']?.end || '18:00')}">
+                      <input id="schedule-end-time" class="form-input" type="time" value="${h(selectedSchedule?.endTime || selectedPreset.end || '18:00')}">
                     </label>
                   </div>
                 </div>
 
+                <div id="schedule-trip-wrap" class="${selectedShiftType === 'business_trip' ? '' : 'hidden'}">
+                  <div class="grid-2">
+                    <label class="reboot-field-block">
+                      <span>行き先</span>
+                      <input id="schedule-destination" class="form-input" type="text" value="${h(selectedSchedule?.destination || '')}" placeholder="例: 名古屋">
+                    </label>
+                    <label class="reboot-field-block">
+                      <span>ホテル名</span>
+                      <input id="schedule-hotel-name" class="form-input" type="text" value="${h(selectedSchedule?.hotelName || '')}" placeholder="例: 駅前ホテル">
+                    </label>
+                  </div>
+                  ${selectedPlaceLine ? `<p class="reboot-inline-note">${h(selectedPlaceLine)}</p>` : ''}
+                </div>
+
                 <label class="reboot-field-block">
                   <span>メモ</span>
-                  <textarea id="schedule-note" class="paste-area reboot-textarea" placeholder="残業予定、翌朝早い、在宅会議が多い など">${h(selectedSchedule?.note || '')}</textarea>
+                  <textarea id="schedule-note" class="paste-area reboot-textarea" placeholder="移動多め、残業予定、翌朝早い など">${h(selectedSchedule?.note || '')}</textarea>
                 </label>
 
                 <div class="reboot-inline-actions">
@@ -2602,12 +2651,14 @@
               <div class="reboot-detail-stack">
                 <div class="reboot-empty-card">
                   <strong>入力例</strong>
-                  <span>2026-04-01 09:00-18:00</span>
-                  <span>2026-04-02 休み</span>
-                  <span>2026-04-03 13:00-22:00</span>
+                  <span>2026-04-01 通常 09:00-18:00</span>
+                  <span>2026-04-02 案件 09:00-18:00</span>
+                  <span>2026-04-03 出張 大阪 / ホテル中央</span>
+                  <span>2026-04-04 有給</span>
+                  <span>2026-04-05 休み</span>
                 </div>
               </div>
-              <textarea id="schedule-paste" class="paste-area reboot-textarea" placeholder="2026-04-01 09:00-18:00&#10;2026-04-02 休み&#10;2026-04-03 13:00-22:00"></textarea>
+              <textarea id="schedule-paste" class="paste-area reboot-textarea" placeholder="2026-04-01 通常 09:00-18:00&#10;2026-04-02 案件 09:00-18:00&#10;2026-04-03 出張 大阪 / ホテル中央&#10;2026-04-04 有給&#10;2026-04-05 休み"></textarea>
               <div class="reboot-inline-actions">
                 <button class="btn btn-primary" type="button" id="schedule-parse-btn">読み取って登録</button>
                 <button class="btn btn-secondary" type="button" onclick="App.Views.WorkSchedule.switchTab('month')">月表示へ戻る</button>
@@ -2650,7 +2701,9 @@
     },
 
     _selectedShiftType() {
-      return document.querySelector('.reboot-shift-chip.selected')?.dataset.shiftType || 'normal';
+      return document.querySelector('.reboot-shift-chip.selected')?.dataset.shiftType
+        || document.getElementById('schedule-current-shift')?.value
+        || 'normal';
     },
 
     _refreshShiftUi(type) {
@@ -2658,13 +2711,19 @@
         button.classList.toggle('selected', button.dataset.shiftType === type);
       });
 
+      const currentShift = document.getElementById('schedule-current-shift');
+      if (currentShift) currentShift.value = type;
+
       const label = document.getElementById('schedule-selected-shift');
       if (label) label.textContent = shiftLabel(type);
 
       const timeWrap = document.getElementById('schedule-time-wrap');
-      if (timeWrap) timeWrap.classList.toggle('hidden', type === 'off');
+      if (timeWrap) timeWrap.classList.toggle('hidden', isRestShiftType(type));
 
-      if (type !== 'off') {
+      const tripWrap = document.getElementById('schedule-trip-wrap');
+      if (tripWrap) tripWrap.classList.toggle('hidden', type !== 'business_trip');
+
+      if (!isRestShiftType(type)) {
         const preset = SHIFT_PRESETS[type] || SHIFT_PRESETS.normal;
         const startInput = document.getElementById('schedule-start-time');
         const endInput = document.getElementById('schedule-end-time');
@@ -2685,9 +2744,11 @@
         const payload = {
           date: this._selectedDate,
           shiftType,
-          startTime: shiftType === 'off' ? '' : (document.getElementById('schedule-start-time')?.value || ''),
-          endTime: shiftType === 'off' ? '' : (document.getElementById('schedule-end-time')?.value || ''),
-          note: document.getElementById('schedule-note')?.value.trim() || ''
+          startTime: isRestShiftType(shiftType) ? '' : (document.getElementById('schedule-start-time')?.value || ''),
+          endTime: isRestShiftType(shiftType) ? '' : (document.getElementById('schedule-end-time')?.value || ''),
+          note: document.getElementById('schedule-note')?.value.trim() || '',
+          destination: shiftType === 'business_trip' ? (document.getElementById('schedule-destination')?.value.trim() || '') : '',
+          hotelName: shiftType === 'business_trip' ? (document.getElementById('schedule-hotel-name')?.value.trim() || '') : ''
         };
 
         await App.DB.upsertSchedule(payload);
@@ -2766,14 +2827,47 @@
 
         const offMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(休み|休日|off)/i);
         if (offMatch) {
-          await App.DB.upsertSchedule({ date: offMatch[1], shiftType: 'off', startTime: '', endTime: '', note: '' });
+          await App.DB.upsertSchedule({ date: offMatch[1], shiftType: 'off', startTime: '', endTime: '', note: '', destination: '', hotelName: '' });
           count += 1;
           continue;
         }
 
-        const remoteMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(リモート|remote|在宅)/i);
-        if (remoteMatch) {
-          await App.DB.upsertSchedule({ date: remoteMatch[1], shiftType: 'remote', startTime: '09:00', endTime: '18:00', note: '' });
+        const paidLeaveMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(有給|有休|paid|paid_leave)/i);
+        if (paidLeaveMatch) {
+          await App.DB.upsertSchedule({ date: paidLeaveMatch[1], shiftType: 'paid_leave', startTime: '', endTime: '', note: '', destination: '', hotelName: '' });
+          count += 1;
+          continue;
+        }
+
+        const tripMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(出張|trip|business_trip)(?:\s+(.+?))?(?:\s+(\d{1,2}:\d{2})\s*[-〜~]\s*(\d{1,2}:\d{2}))?$/i);
+        if (tripMatch) {
+          const [, date, , placeText = '', start = '09:00', end = '18:00'] = tripMatch;
+          const [destination = '', hotelName = ''] = placeText.split(/\s*[/／]\s*/).map(value => value.trim());
+          await App.DB.upsertSchedule({
+            date,
+            shiftType: 'business_trip',
+            startTime: start.padStart(5, '0'),
+            endTime: end.padStart(5, '0'),
+            destination,
+            hotelName,
+            note: ''
+          });
+          count += 1;
+          continue;
+        }
+
+        const projectMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(案件あり|案件|project)(?:\s+(\d{1,2}:\d{2})\s*[-〜~]\s*(\d{1,2}:\d{2}))?/i);
+        if (projectMatch) {
+          const [, date, , start = '09:00', end = '18:00'] = projectMatch;
+          await App.DB.upsertSchedule({ date, shiftType: 'project', startTime: start.padStart(5, '0'), endTime: end.padStart(5, '0'), note: '', destination: '', hotelName: '' });
+          count += 1;
+          continue;
+        }
+
+        const normalMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(通常|通常勤務|normal)(?:\s+(\d{1,2}:\d{2})\s*[-〜~]\s*(\d{1,2}:\d{2}))?/i);
+        if (normalMatch) {
+          const [, date, , start = '09:00', end = '18:00'] = normalMatch;
+          await App.DB.upsertSchedule({ date, shiftType: 'normal', startTime: start.padStart(5, '0'), endTime: end.padStart(5, '0'), note: '', destination: '', hotelName: '' });
           count += 1;
           continue;
         }
@@ -2781,19 +2875,14 @@
         const timeMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{1,2}:\d{2})\s*[-〜~]\s*(\d{1,2}:\d{2})/);
         if (timeMatch) {
           const [, date, start, end] = timeMatch;
-          const startMin = App.Utils.timeToMinutes(start);
-          const endMin = App.Utils.timeToMinutes(end);
-          let shiftType = 'normal';
-          if (startMin <= 7 * 60) shiftType = 'early';
-          else if (startMin >= 12 * 60) shiftType = 'late';
-          if (endMin <= 7 * 60 || startMin >= 20 * 60) shiftType = 'night';
-
           await App.DB.upsertSchedule({
             date,
-            shiftType,
+            shiftType: 'normal',
             startTime: start.padStart(5, '0'),
             endTime: end.padStart(5, '0'),
-            note: ''
+            note: '',
+            destination: '',
+            hotelName: ''
           });
           count += 1;
         }
@@ -2865,7 +2954,8 @@
 
   function formatShift(schedule) {
     if (!schedule) return '未設定';
-    return `${App.FinalPolish.getShiftLabel(schedule.shiftType)} / ${App.FinalPolish.formatShiftRange(schedule).replace(/\s+/g, ' ').trim()}`;
+    const place = schedulePlaceLine(schedule);
+    return `${App.FinalPolish.getShiftLabel(schedule.shiftType)} / ${App.FinalPolish.formatShiftRange(schedule).replace(/\s+/g, ' ').trim()}${place ? ` / ${place}` : ''}`;
   }
 
   async function renderSyncPanel(actionHandler, actionLabel = '再同期') {
@@ -3545,14 +3635,14 @@
       const avgScore = average(judgments.map(item => item.score));
       const avgSleep = average(healthRecords.map(item => item.sleepMinutes != null ? item.sleepMinutes / 60 : null));
       const avgSteps = average(healthRecords.map(item => item.steps));
-      const lateShiftDays = schedules.filter(item => item.shiftType === 'late' || item.shiftType === 'night').length;
-      const lateShiftWorkouts = actual.filter(item => {
+      const activeWorkDays = schedules.filter(item => item.shiftType === 'project' || item.shiftType === 'business_trip').length;
+      const activeWorkWorkouts = actual.filter(item => {
         const schedule = schedules.find(s => s.date === item.date);
-        return schedule && (schedule.shiftType === 'late' || schedule.shiftType === 'night');
+        return schedule && (schedule.shiftType === 'project' || schedule.shiftType === 'business_trip');
       }).length;
       const offDayWorkouts = actual.filter(item => {
         const schedule = schedules.find(s => s.date === item.date);
-        return schedule?.shiftType === 'off';
+        return isRestShiftType(schedule?.shiftType);
       }).length;
 
       return `
@@ -3609,9 +3699,9 @@
                   </div>
                   <div class="reboot-metric-grid reboot-metric-grid-3">
                     <article class="reboot-stat-card">
-                      <span>遅番 / 夜勤</span>
-                      <strong>${lateShiftDays}日</strong>
-                      <small>そのうち実施 ${lateShiftWorkouts}回</small>
+                      <span>案件 / 出張</span>
+                      <strong>${activeWorkDays}日</strong>
+                      <small>そのうち実施 ${activeWorkWorkouts}回</small>
                     </article>
                     <article class="reboot-stat-card">
                       <span>休みの日の実施</span>
@@ -3643,7 +3733,7 @@
                     <div class="reboot-list-card">
                       <div>
                         <strong>勤務との相性</strong>
-                        <span>${lateShiftDays > 0 ? `遅番・夜勤 ${lateShiftDays} 日のうち ${lateShiftWorkouts} 回トレーニングしています。` : '遅番・夜勤のデータはまだありません。'}</span>
+                        <span>${activeWorkDays > 0 ? `案件・出張 ${activeWorkDays} 日のうち ${activeWorkWorkouts} 回トレーニングしています。` : '案件・出張のデータはまだありません。'}</span>
                       </div>
                     </div>
                     <div class="reboot-list-card">

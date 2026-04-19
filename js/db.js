@@ -709,7 +709,9 @@
           shiftType: s.shiftType,
           startTime: s.startTime || '',
           endTime: s.endTime || '',
-          note: s.note || ''
+          note: s.note || '',
+          destination: s.destination || '',
+          hotelName: s.hotelName || ''
         }))
       };
 

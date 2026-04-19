@@ -26,7 +26,10 @@
 
   const SHIFT_LABELS = {
     off: '休み',
+    paid_leave: '有給',
     normal: '通常勤務',
+    project: '案件あり勤務',
+    business_trip: '出張勤務',
     early: '早番',
     late: '遅番',
     night: '夜勤',
@@ -341,7 +344,7 @@
 
   function getAvailableMinutes(schedule) {
     if (!schedule) return null;
-    if (schedule.shiftType === 'off') return 120;
+    if (schedule.shiftType === 'off' || schedule.shiftType === 'paid_leave') return 120;
     const endMin = App.Utils.timeToMinutes(schedule.endTime);
     if (endMin == null) return null;
     return Math.max(0, (24 * 60) - Math.max(endMin + 30, 22 * 60));
@@ -353,6 +356,8 @@
 
   function formatShiftRange(schedule) {
     if (!schedule) return '未設定';
+    if (schedule.shiftType === 'off') return '終日休み';
+    if (schedule.shiftType === 'paid_leave') return '終日有給';
     return `${App.Utils.normTime(schedule.startTime) || '--:--'} - ${App.Utils.normTime(schedule.endTime) || '--:--'}`;
   }
 

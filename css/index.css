@@ -707,6 +707,9 @@ input[type="range"].unset::-webkit-slider-thumb {
 
 .calendar-day.shift-off { background: rgba(52,211,153,0.1); }
 .calendar-day.shift-normal { background: rgba(96,165,250,0.08); }
+.calendar-day.shift-paid-leave { background: rgba(52,211,153,0.10); }
+.calendar-day.shift-project { background: rgba(251,191,36,0.10); }
+.calendar-day.shift-business-trip { background: rgba(129,140,248,0.12); }
 .calendar-day.shift-late { background: rgba(251,191,36,0.1); }
 .calendar-day.shift-night { background: rgba(248,113,113,0.1); }
 .calendar-day.shift-early { background: rgba(96,165,250,0.08); }

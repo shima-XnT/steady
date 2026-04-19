@@ -1088,7 +1088,7 @@ body {
 }
 
 .reboot-shift-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .hidden {
@@ -1157,7 +1157,7 @@ body {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .reboot-shift-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .reboot-flow-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));

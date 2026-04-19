@@ -69,7 +69,7 @@
         activeMinutes = null,     // 活動時間
         daysSinceLastWorkout = null,
         consecutiveTrainingDays = 0,
-        shiftType = null,         // off, normal, early, late, night, remote
+        shiftType = null,         // off, normal, project, business_trip, legacy: early/late/night/remote
         note = '',                // 体調メモ（フリーテキスト）
       } = input;
 
@@ -126,6 +126,15 @@
       } else if (shiftType === 'late') {
         score -= 15;
         reasons.push('遅番のため時間が限られます');
+      } else if (shiftType === 'business_trip') {
+        score -= 25;
+        reasons.push('出張勤務のため調整します');
+      } else if (shiftType === 'project') {
+        score -= 15;
+        reasons.push('案件あり勤務で移動が多めです');
+      } else if (shiftType === 'paid_leave') {
+        score += 15;
+          reasons.push('有給の日です');
       } else if (shiftType === 'off') {
         score += 15;
           reasons.push('休みの日です');
@@ -324,7 +333,7 @@
       // 利用可能時間を計算
       let availableMinutes = null;
       if (schedule) {
-        if (schedule.shiftType === 'off') {
+        if (schedule.shiftType === 'off' || schedule.shiftType === 'paid_leave') {
           availableMinutes = 120;
         } else if (schedule.endTime) {
           const endMin = App.Utils.timeToMinutes(schedule.endTime);

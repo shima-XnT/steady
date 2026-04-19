@@ -208,6 +208,9 @@ function _handleLegacyPost(data) {
       shiftType: data.schedule.shiftType || '',
       startTime: data.schedule.startTime || '',
       endTime: data.schedule.endTime || '',
+      note: data.schedule.note || '',
+      destination: data.schedule.destination || '',
+      hotelName: data.schedule.hotelName || '',
       sourceDevice: src, updatedBy: by, updatedAt: data.updatedAt
     }, scheduleRevision);
   }
@@ -393,7 +396,7 @@ function _normalizeSkipReason(raw) {
  * off: 960分(16時間), 勤務日: 23:00 - 退勤時刻
  */
 function _computeAvailableMinutes(shiftType, endTime) {
-  if (shiftType === 'off') return 960;
+  if (shiftType === 'off' || shiftType === 'paid_leave') return 960;
   if (!endTime) return '';
   try {
     var parts = String(endTime).split(':').map(Number);
@@ -619,6 +622,8 @@ function _rebuildDailySummary(dateStr, src, by, updatedAt, condJudgPatch, client
     shiftType: shiftType,
     workStart: _normTime(sched.startTime) || '',
     workEnd: endTime,
+    destination: sched.destination || '',
+    hotelName: sched.hotelName || '',
     availableMinutes: availMin,
     judgmentResult: judgmentResult,
     judgmentScore: judgmentScore,
@@ -676,7 +681,7 @@ function _coalesce() {
 // ============ daily_summary ============
 function _dailySummaryHeaders() {
   return [
-    'date','weekday','shiftType','workStart','workEnd','availableMinutes',
+    'date','weekday','shiftType','workStart','workEnd','destination','hotelName','availableMinutes',
     'judgmentResult','judgmentScore','judgmentReason',
     'didWorkout','workoutType','totalDurationMinutes',
     'steps','sleepMinutes','sleepStartAt','sleepEndAt','heartRateAvg','restingHeartRate',
@@ -697,7 +702,7 @@ function _saveDailySummary(d, clientRevision) {
   }
   var sheet = _sheetWithHeaders('daily_summary', _dailySummaryHeaders());
   var row = [
-    d.date, weekday, d.shiftType||'', d.workStart||'', d.workEnd||'', d.availableMinutes != null ? d.availableMinutes : '',
+    d.date, weekday, d.shiftType||'', d.workStart||'', d.workEnd||'', d.destination||'', d.hotelName||'', d.availableMinutes != null ? d.availableMinutes : '',
     d.judgmentResult != null ? d.judgmentResult : '', d.judgmentScore != null ? d.judgmentScore : '', d.judgmentReason||'',
     d.didWorkout||'', d.workoutType||'', d.totalDurationMinutes != null ? d.totalDurationMinutes : '',
     d.steps != null ? d.steps : '', d.sleepMinutes != null ? d.sleepMinutes : '',
@@ -780,11 +785,11 @@ function _saveHealthDaily(d, clientRevision) {
 // ============ schedule ============
 function _updateSchedule(d, clientRevision) {
   var sheet = _sheetWithHeaders('schedule', [
-    'date','shiftType','startTime','endTime','note',
+    'date','shiftType','startTime','endTime','note','destination','hotelName',
     'sourceDevice','updatedBy','updatedAt','revision'
   ]);
   var row = [
-    d.date, d.shiftType||'', d.startTime||'', d.endTime||'', d.note||'',
+    d.date, d.shiftType||'', d.startTime||'', d.endTime||'', d.note||'', d.destination||'', d.hotelName||'',
     d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
   ];
   _upsertRow(sheet, d.date, row, clientRevision);
@@ -796,7 +801,7 @@ function _updateSchedule(d, clientRevision) {
 
 function _deleteSchedule(d) {
   var sheet = _sheetWithHeaders('schedule', [
-    'date','shiftType','startTime','endTime','note',
+    'date','shiftType','startTime','endTime','note','destination','hotelName',
     'sourceDevice','updatedBy','updatedAt','revision'
   ]);
   var idx = _findRow(sheet, d.date);
@@ -814,7 +819,7 @@ function _bulkSchedule(data) {
   if (schedules.length === 0) return { count: 0 };
   
   var sheet = _sheetWithHeaders('schedule', [
-    'date','shiftType','startTime','endTime','note',
+    'date','shiftType','startTime','endTime','note','destination','hotelName',
     'sourceDevice','updatedBy','updatedAt','revision'
   ]);
   var now = new Date().toISOString();
@@ -823,7 +828,7 @@ function _bulkSchedule(data) {
   for (var i = 0; i < schedules.length; i++) {
     var s = schedules[i];
     var row = [
-      s.date, s.shiftType || '', s.startTime || '', s.endTime || '', s.note || '',
+      s.date, s.shiftType || '', s.startTime || '', s.endTime || '', s.note || '', s.destination || '', s.hotelName || '',
       data.sourceDevice || '', 'bulk', now, 1
     ];
     _upsertRow(sheet, s.date, row);
@@ -904,6 +909,9 @@ function _getAll() {
         shiftType: obj.shiftType || '',
         startTime: _normTime(obj.startTime),
         endTime: _normTime(obj.endTime),
+        note: obj.note || '',
+        destination: obj.destination || '',
+        hotelName: obj.hotelName || '',
         updatedAt: obj.updatedAt || '',
         _revision: parseInt(obj.revision) || 0
       };

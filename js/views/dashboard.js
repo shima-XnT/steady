@@ -32,7 +32,7 @@
 
       // 今日の勤務情報
       const schedule = await App.DB.getSchedule(today);
-      const SHIFT_LABELS = { off: '休み', normal: '通常勤務', early: '早番', late: '遅番', night: '夜勤', remote: 'リモート' };
+      const SHIFT_LABELS = { off: '休み', paid_leave: '有給', normal: '通常勤務', project: '案件あり勤務', business_trip: '出張勤務', early: '早番', late: '遅番', night: '夜勤', remote: '在宅' };
       const shiftLabel = SHIFT_LABELS[schedule?.shiftType] || schedule?.shiftType || '未設定';
       const workEnd = App.Utils.normTime(schedule?.endTime) || '';
 

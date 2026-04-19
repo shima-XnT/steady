@@ -130,12 +130,12 @@
     },
 
     _shiftLabel(type) {
-      const map = { off: '休み', normal: '通常', early: '早番', late: '遅番', night: '夜勤', remote: 'リモート' };
+      const map = { off: '休み', paid_leave: '有給', normal: '通常勤務', project: '案件あり勤務', business_trip: '出張勤務', early: '早番', late: '遅番', night: '夜勤', remote: '在宅' };
       return map[type] || type || '不明';
     },
 
     _shiftBadge(type) {
-      const map = { off: 'success', normal: 'info', early: 'info', late: 'warning', night: 'danger', remote: 'primary' };
+      const map = { off: 'success', paid_leave: 'success', normal: 'info', project: 'warning', business_trip: 'primary', early: 'info', late: 'warning', night: 'danger', remote: 'primary' };
       return map[type] || 'muted';
     },
 
