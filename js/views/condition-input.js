@@ -68,30 +68,13 @@
               </div>
             </div>
 
-            <!-- 睡眠時間（スマホのみ表示） -->
-            ${window.SteadyBridge ? `
-            <div class="form-group">
-              <div class="form-label">昨夜の睡眠時間</div>
-              <div class="range-group">
-                <div class="range-header">
-                  <span class="text-xs text-muted">0h</span>
-                  <span class="range-value" id="sleep-value">${hasSleep ? App.Utils.formatSleep(health.sleepMinutes) : '未設定'}</span>
-                  <span class="text-xs text-muted">12h</span>
-                </div>
-                <input type="range" id="sleep-input" min="0" max="720" step="15"
-                  value="${hasSleep ? health.sleepMinutes : 360}"
-                  class="${hasSleep ? '' : 'unset'}"
-                  >
-              </div>
-            </div>
-            ` : `
             <div class="form-group">
               <div class="form-label">昨夜の睡眠</div>
               <div class="text-lg fw-600" style="color:var(--accent);padding:8px 0;">
-                ${hasSleep ? App.Utils.formatSleep(health.sleepMinutes) : '📱 スマホから自動同期'}
+                ${hasSleep ? App.Utils.formatSleep(health.sleepMinutes) : '未取得'}
               </div>
+              <div class="text-xs text-muted">Health Connect の取得値を表示します。</div>
             </div>
-            `}
 
             <!-- 備考 -->
             <div class="form-group">
@@ -237,21 +220,6 @@
         });
       });
 
-      // Sleep range — 操作したら「未設定」を解除
-      const sleepInput = document.getElementById('sleep-input');
-      const sleepValue = document.getElementById('sleep-value');
-      if (sleepInput) {
-        sleepInput.addEventListener('input', () => {
-          this._sleepTouched = true;
-          sleepInput.classList.remove('unset');
-          sleepValue.textContent = App.Utils.formatSleep(parseInt(sleepInput.value));
-        });
-        // スライダーを離した時に保存
-        sleepInput.addEventListener('change', () => {
-          this._autoSaveSleep();
-        });
-      }
-
       // メモ — フォーカスが外れたら自動保存
       const noteInput = document.getElementById('condition-note');
       if (noteInput) {
@@ -288,15 +256,9 @@
       // ★ ここではPushしない。判定ボタン押下時に pushToCloud でまとめて送信する。
     },
 
-    // 睡眠データを即座に保存
+    // 睡眠は Health Connect の取得値だけを使う。旧UI互換で呼ばれても保存しない。
     async _autoSaveSleep() {
-      const sleepMin = parseInt(document.getElementById('sleep-input')?.value || '0');
-      await App.DB.upsertHealth({
-        date: App.Utils.today(),
-        source: 'manual',
-        sleepMinutes: sleepMin
-      });
-      // ★ ここではPushしない。判定ボタン押下時にまとめて送信する。
+      return null;
     },
 
     async _doJudge() {
@@ -336,23 +298,12 @@
         };
         await App.DB.upsertCondition(conditionData);
 
-        // 睡眠データ — ユーザーが操作済みの場合のみ保存
         const overrides = {
           fatigue: conditionData.fatigue,
           muscleSoreness: conditionData.muscleSoreness,
           motivation: conditionData.motivation,
           mood: conditionData.mood
         };
-
-        if (this._sleepTouched) {
-          const sleepMin = parseInt(document.getElementById('sleep-input')?.value || '0');
-          await App.DB.upsertHealth({
-            date: today,
-            source: 'manual',
-            sleepMinutes: sleepMin
-          });
-          overrides.sleepMinutes = sleepMin;
-        }
 
         // 判定実行
         const result = await App.Judgment.judgeAndSave(today, overrides);

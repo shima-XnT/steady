@@ -1,5 +1,5 @@
-// Steady Service Worker — オフラインキャッシュ
-const CACHE_NAME = 'steady-v75';
+// からだログ Service Worker
+const CACHE_NAME = 'steady-v77';
 const ASSET_PATHS = [
   'index.html',
   'css/index.css',
@@ -26,7 +26,6 @@ const ASSET_PATHS = [
   'js/views/analytics.js',
   'js/views/settings.js',
   'js/views/onboarding.js',
-  'data/sample-data.js',
   'manifest.json'
 ];
 const ASSETS = ASSET_PATHS.map(path => new URL(path, self.registration.scope).toString());

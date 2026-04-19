@@ -866,17 +866,14 @@
                     <div class="reboot-section-head">
                       <div>
                         <h3>睡眠</h3>
-                        <p>${window.SteadyBridge ? 'スマホではスライダーで補正できます。PC は閲覧専用です。' : 'PC は閲覧専用です。健康データはスマホから同期します。'}</p>
+                        <p>${window.SteadyBridge ? 'Health Connect の値をそのまま使います。' : 'スマホで同期した値を表示します。'}</p>
                       </div>
                       <span class="reboot-inline-note" id="condition-sleep-value">${h(App.Utils.formatSleep(health?.sleepMinutes) || (window.SteadyBridge ? '未設定' : 'スマホ同期待ち'))}</span>
                     </div>
-                    ${window.SteadyBridge ? `
-                      <input id="condition-sleep-input" class="reboot-range-input ${health?.sleepMinutes != null ? '' : 'unset'}"
-                        type="range" min="0" max="720" step="15" value="${health?.sleepMinutes != null ? health.sleepMinutes : 360}">` : `
-                      <div class="reboot-readonly-block">
-                        <strong>${h(App.Utils.formatSleep(health?.sleepMinutes) || 'スマホから同期')}</strong>
-                        <span>PC ではここは表示のみです。</span>
-                      </div>`}
+                    <div class="reboot-readonly-block">
+                      <strong>${h(App.Utils.formatSleep(health?.sleepMinutes) || '未取得')}</strong>
+                      <span>${window.SteadyBridge ? 'ここでは変更できません。' : 'PC では表示のみです。'}</span>
+                    </div>
                   </section>
 
                   <label class="reboot-field-block">
@@ -973,10 +970,7 @@
       const soreness = CONDITION_OPTIONS.muscleSoreness.options.find(option => option.value === this._selectedValue('muscleSoreness'))?.label || '未入力';
       const motivation = CONDITION_OPTIONS.motivation.options.find(option => option.value === this._selectedValue('motivation'))?.label || '未入力';
       const mood = CONDITION_OPTIONS.mood.options.find(option => option.value === this._selectedValue('mood'))?.label || '未入力';
-      const sleepInput = document.getElementById('condition-sleep-input');
-      const sleepValue = window.SteadyBridge && this._sleepTouched && sleepInput
-        ? App.Utils.formatSleep(safeNumber(sleepInput.value, 0))
-        : (document.getElementById('condition-sleep-value')?.textContent || '睡眠未取得');
+      const sleepValue = document.getElementById('condition-sleep-value')?.textContent || '睡眠未取得';
       const line = `状態 ${fatigue} / 張り ${soreness} / 集中度 ${motivation} / 全体 ${mood} / 睡眠 ${sleepValue}`;
       const summary = document.getElementById('condition-live-summary');
       if (summary) summary.textContent = line;
@@ -1083,14 +1077,6 @@
         button.addEventListener('click', () => {
           button.classList.toggle('selected');
         });
-      });
-
-      document.getElementById('condition-sleep-input')?.addEventListener('input', event => {
-        this._sleepTouched = true;
-        const value = App.Utils.formatSleep(safeNumber(event.target.value, 0));
-        const slot = document.getElementById('condition-sleep-value');
-        if (slot) slot.textContent = value || '未設定';
-        this._refreshLiveSummary();
       });
 
       document.getElementById('condition-note')?.addEventListener('input', () => this._refreshLiveSummary());
@@ -2091,7 +2077,7 @@
         try {
           const reasons = [...document.querySelectorAll('[data-skip-reason].selected')].map(node => node.dataset.skipReason).filter(Boolean);
           const memo = document.getElementById('skip-note')?.value.trim() || '';
-          await App.DB.saveWorkout({
+          currentWorkoutId = await App.DB.saveWorkout({
             id: currentWorkoutId,
             date: App.Utils.today(),
             type: 'skip',
@@ -2978,45 +2964,20 @@
               <section class="reboot-panel">
                 <div class="reboot-section-head">
                   <div>
-                    <h3>補正入力</h3>
-                    <p>必要な分だけ補正します。</p>
+                    <h3>取得データ</h3>
+                    <p>Health Connect から取得した値を表示します。</p>
                   </div>
                 </div>
-                ${window.SteadyBridge ? `
-                  <div class="reboot-form-stack">
-                    <div class="reboot-health-input-grid">
-                      <label class="reboot-field-block">
-                        <span>歩数</span>
-                        <input id="h-steps" class="form-input" type="number" min="0" step="100" value="${health?.steps || ''}" placeholder="未入力">
-                      </label>
-                      <label class="reboot-field-block">
-                        <span>平均心拍</span>
-                        <input id="h-heartrate" class="form-input" type="number" min="40" max="200" value="${health?.heartRateAvg || ''}" placeholder="未入力">
-                      </label>
-                      <label class="reboot-field-block">
-                        <span>安静時心拍</span>
-                        <input id="h-resting-heartrate" class="form-input" type="number" min="30" max="160" value="${health?.restingHeartRate || ''}" placeholder="未入力">
-                      </label>
-                    </div>
-                    <section class="reboot-choice-section">
-                      <div class="reboot-section-head">
-                        <div>
-                          <h3>睡眠</h3>
-                          <p>必要なときだけ動かします。</p>
-                        </div>
-                        <span class="reboot-inline-note" id="h-sleep-display">${h(App.Utils.formatSleep(health?.sleepMinutes) || '未設定')}</span>
-                      </div>
-                      <input id="h-sleep" class="reboot-range-input ${health?.sleepMinutes != null ? '' : 'unset'}" type="range" min="0" max="720" step="15" value="${health?.sleepMinutes != null ? health.sleepMinutes : 360}">
-                    </section>
-                    <div class="reboot-inline-actions">
-                      <button class="btn btn-primary" type="button" id="save-health-btn">保存</button>
-                      ${provider?.triggerSync ? `<button class="btn btn-secondary" type="button" id="health-trigger-sync-btn">Health Connect 再取得</button>` : ''}
-                    </div>
-                  </div>` : `
+                <div class="reboot-form-stack">
                   <div class="reboot-empty-card">
-                    <strong>PC は閲覧専用</strong>
-                    <span>補正入力と Health Connect 同期はスマホで行います。</span>
-                  </div>`}
+                    <strong>${window.SteadyBridge ? 'Health Connect の取得結果' : '閲覧のみ'}</strong>
+                    <span>${window.SteadyBridge ? '手入力はできません。必要なときは再取得してください。' : 'スマホで取得した健康データを表示します。'}</span>
+                  </div>
+                  ${provider?.triggerSync ? `
+                    <div class="reboot-inline-actions">
+                      <button class="btn btn-secondary" type="button" id="health-trigger-sync-btn">再取得</button>
+                    </div>` : ''}
+                </div>
               </section>
 
               <section class="reboot-panel">
@@ -3082,67 +3043,15 @@
 
     init() {
       document.getElementById('health-date')?.addEventListener('change', event => this.loadDate(event.target.value));
-      document.getElementById('h-sleep')?.addEventListener('input', event => {
-        this._sleepTouched = true;
-        const display = document.getElementById('h-sleep-display');
-        if (display) display.textContent = App.Utils.formatSleep(Number(event.target.value) || 0) || '未設定';
-      });
       document.getElementById('health-trigger-sync-btn')?.addEventListener('click', () => {
         if (App.healthProvider?.triggerSync) {
-          App.Utils.showToast('再取得しています...', 'info', 1800);
+          App.Utils.showToast('再取得しています', 'info', 1800);
           App.healthProvider.triggerSync(document.getElementById('health-date')?.value || App.Utils.today());
         }
       });
       document.getElementById('health-history-toggle')?.addEventListener('click', async () => {
         this._historyExpanded = !this._historyExpanded;
         await App.refreshView();
-      });
-      document.getElementById('save-health-btn')?.addEventListener('click', async () => {
-        const button = document.getElementById('save-health-btn');
-        const parseNullableNumber = id => {
-          const input = document.getElementById(id);
-          if (!input) return null;
-          const raw = input.value;
-          if (raw === '' || raw == null) return null;
-          const num = Number(raw);
-          return Number.isFinite(num) ? num : null;
-        };
-        if (button) {
-          button.disabled = true;
-          button.textContent = '保存中...';
-        }
-        try {
-          const date = document.getElementById('health-date')?.value || App.Utils.today();
-          const calories = await this._calcTodayCalories(date);
-          await App.DB.upsertHealth({
-            date,
-            source: 'manual',
-            steps: parseNullableNumber('h-steps'),
-            sleepMinutes: this._sleepTouched ? parseNullableNumber('h-sleep') : null,
-            heartRateAvg: parseNullableNumber('h-heartrate'),
-            restingHeartRate: parseNullableNumber('h-resting-heartrate'),
-            calories: calories || null
-          });
-          const pushRes = await App.DB.pushToCloud(date, { sections: ['health'] });
-          await App.Utils.rememberHealthPushResult(pushRes, {
-            dateStr: date,
-            source: 'manual'
-          });
-          await App.Utils.showSharedSaveResult(pushRes, {
-            subject: '健康データ',
-            successMessage: '保存しました',
-            warningMessage: '未送信',
-            errorPrefix: '保存に失敗しました'
-          });
-          await App.refreshView();
-        } catch (error) {
-          App.Utils.showToast(`保存に失敗しました: ${error.message}`, 'error');
-        } finally {
-          if (button) {
-            button.disabled = false;
-            button.textContent = '保存';
-          }
-        }
       });
     },
 
@@ -3159,8 +3068,8 @@
     if (manualPanel) {
       const heading = manualPanel.querySelector('.reboot-section-head h3');
       const note = manualPanel.querySelector('.reboot-section-head p');
-      if (heading) heading.textContent = '取得';
-      if (note) note.textContent = '健康データは取得結果を表示するだけです。';
+      if (heading) heading.textContent = '取得データ';
+      if (note) note.textContent = 'Health Connect から取得した値を表示します。';
     }
 
     if (manualStack) {
@@ -3168,19 +3077,19 @@
       replacement.className = 'reboot-form-stack';
       replacement.innerHTML = `
         <div class="reboot-empty-card">
-          <strong>${window.SteadyBridge ? 'Health Connect を表示' : 'PC は閲覧専用'}</strong>
-          <span>${window.SteadyBridge ? '手入力はできません。必要なら再取得してください。' : 'スマホで取得したデータを表示します。'}</span>
+          <strong>${window.SteadyBridge ? 'Health Connect の取得結果' : '閲覧のみ'}</strong>
+          <span>${window.SteadyBridge ? '手入力はできません。必要なときは再取得してください。' : 'スマホで取得した健康データを表示します。'}</span>
         </div>
         ${App.healthProvider?.triggerSync ? `
           <div class="reboot-inline-actions">
-            <button class="btn btn-secondary" type="button" id="health-trigger-sync-btn">Health Connect 再取得</button>
+            <button class="btn btn-secondary" type="button" id="health-trigger-sync-btn">再取得</button>
           </div>` : ''}`;
       manualStack.replaceWith(replacement);
     }
 
     document.getElementById('health-trigger-sync-btn')?.addEventListener('click', () => {
       if (App.healthProvider?.triggerSync) {
-        App.Utils.showToast('再取得しています...', 'info', 1800);
+        App.Utils.showToast('再取得しています', 'info', 1800);
         App.healthProvider.triggerSync(document.getElementById('health-date')?.value || App.Utils.today());
       }
     });
@@ -3200,22 +3109,22 @@
     const panel = root?.querySelector('.reboot-main-stack .reboot-panel:nth-of-type(3)');
     const heading = panel?.querySelector('.reboot-section-head h3');
     const note = panel?.querySelector('.reboot-section-head p');
-    const manualStack = panel?.querySelector('.reboot-form-stack');
+    const manualStack = panel?.querySelector('#save-health-btn')?.closest('.reboot-form-stack');
 
-    if (heading) heading.textContent = '取得';
-    if (note) note.textContent = '健康データは取得結果を表示するだけです。';
+    if (heading) heading.textContent = '取得データ';
+    if (note) note.textContent = 'Health Connect から取得した値を表示します。';
 
     if (manualStack) {
       const replacement = document.createElement('div');
       replacement.className = 'reboot-form-stack';
       replacement.innerHTML = `
         <div class="reboot-empty-card">
-          <strong>${window.SteadyBridge ? 'Health Connect を表示' : 'PC は閲覧専用'}</strong>
-          <span>${window.SteadyBridge ? '手入力はできません。必要なら再取得してください。' : 'スマホで取得したデータを表示します。'}</span>
+          <strong>${window.SteadyBridge ? 'Health Connect の取得結果' : '閲覧のみ'}</strong>
+          <span>${window.SteadyBridge ? '手入力はできません。必要なときは再取得してください。' : 'スマホで取得した健康データを表示します。'}</span>
         </div>
         ${App.healthProvider?.triggerSync ? `
           <div class="reboot-inline-actions">
-            <button class="btn btn-secondary" type="button" id="health-trigger-sync-btn">Health Connect 再取得</button>
+            <button class="btn btn-secondary" type="button" id="health-trigger-sync-btn">再取得</button>
           </div>` : ''}`;
       manualStack.replaceWith(replacement);
     }

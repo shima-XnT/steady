@@ -679,14 +679,24 @@
     installDbHelpers
   };
 
-  window.addEventListener('hashchange', () => setTimeout(applyNavigation, 0));
-  window.addEventListener('resize', () => setTimeout(applyNavigation, 0));
-  window.addEventListener('DOMContentLoaded', () => {
-    setTimeout(() => {
+  let finalHelpersInstalled = false;
+
+  function bootFinalHelpers() {
+    if (!finalHelpersInstalled) {
+      finalHelpersInstalled = true;
       installUtilityHelpers();
       installDbHelpers();
-      applyNavigation();
+    }
+    applyNavigation();
+    if (document?.title !== 'からだログ') {
       document.title = 'からだログ';
-    }, 60);
-  });
+    }
+  }
+
+  window.addEventListener('hashchange', () => setTimeout(applyNavigation, 0));
+  window.addEventListener('resize', () => setTimeout(applyNavigation, 0));
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', bootFinalHelpers);
+  }
+  bootFinalHelpers();
 })();

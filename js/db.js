@@ -190,22 +190,45 @@
 
     async saveWorkout(data, exercisesList) {
       let workoutId;
-      data.updatedAt = new Date().toISOString();
-      if (data.id) {
-        await db.workouts.update(data.id, data);
-        workoutId = data.id;
-      } else {
-        data.createdAt = data.updatedAt;
-        workoutId = await db.workouts.add(data);
+      const payload = { ...data };
+      const rawId = payload.id;
+      delete payload.id;
+      payload.updatedAt = new Date().toISOString();
+
+      const numericId = Number(rawId);
+      const hasValidId = rawId !== null && rawId !== undefined && rawId !== '' && Number.isFinite(numericId) && numericId > 0;
+
+      if (hasValidId) {
+        const updated = await db.workouts.update(numericId, payload);
+        if (updated) {
+          workoutId = numericId;
+        }
+      }
+
+      if (!workoutId && payload.date) {
+        const existing = await db.workouts.where('date').equals(payload.date).first();
+        if (existing) {
+          await db.workouts.update(existing.id, payload);
+          workoutId = existing.id;
+        }
+      }
+
+      if (!workoutId) {
+        payload.createdAt = payload.updatedAt;
+        workoutId = await db.workouts.add(payload);
       }
       // exercises が渡された場合、同時にアトミック保存
       if (exercisesList && exercisesList.length > 0) {
         await db.exercises.where('workoutId').equals(workoutId).delete();
-        const items = exercisesList.map((ex, i) => ({
-          ...ex,
-          workoutId,
-          orderIndex: i
-        }));
+        const items = exercisesList.map((ex, i) => {
+          const item = {
+            ...ex,
+            workoutId,
+            orderIndex: i
+          };
+          delete item.id;
+          return item;
+        });
         await db.exercises.bulkAdd(items);
       }
       // ★ DB層ではPushしない。View層がpushToCloudを明示的にawaitすること。
@@ -243,11 +266,15 @@
 
     async saveExercises(workoutId, exerciseList) {
       await db.exercises.where('workoutId').equals(workoutId).delete();
-      const items = exerciseList.map((ex, i) => ({
-        ...ex,
-        workoutId,
-        orderIndex: i
-      }));
+      const items = exerciseList.map((ex, i) => {
+        const item = {
+          ...ex,
+          workoutId,
+          orderIndex: i
+        };
+        delete item.id;
+        return item;
+      });
       await db.exercises.bulkAdd(items);
       // ★ DB層ではPushしない。
     },
