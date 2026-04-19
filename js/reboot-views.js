@@ -64,10 +64,21 @@
 
   const WORKOUT_TIMER_START_KEY = 'steady_workout_timer_start';
   const WORKOUT_TIMER_DATE_KEY = 'steady_workout_timer_date';
+  const WORKOUT_TIMER_ELAPSED_KEY = 'steady_workout_timer_elapsed_seconds';
+  const WORKOUT_TIMER_STATE_KEY = 'steady_workout_timer_state';
   let workoutTimer = null;
   let workoutStartTime = (() => {
     const saved = Number(localStorage.getItem(WORKOUT_TIMER_START_KEY));
     return Number.isFinite(saved) && saved > 0 ? saved : null;
+  })();
+  let workoutElapsedSeconds = (() => {
+    const saved = Number(localStorage.getItem(WORKOUT_TIMER_ELAPSED_KEY));
+    return Number.isFinite(saved) && saved > 0 ? saved : 0;
+  })();
+  let workoutTimerState = (() => {
+    const saved = localStorage.getItem(WORKOUT_TIMER_STATE_KEY);
+    if (saved === 'paused' || saved === 'running') return saved;
+    return workoutStartTime ? 'running' : 'idle';
   })();
   let currentExercises = [];
   let currentWorkoutId = null;
@@ -83,8 +94,12 @@
       workoutTimer = null;
     }
     workoutStartTime = null;
+    workoutElapsedSeconds = 0;
+    workoutTimerState = 'idle';
     localStorage.removeItem(WORKOUT_TIMER_START_KEY);
     localStorage.removeItem(WORKOUT_TIMER_DATE_KEY);
+    localStorage.removeItem(WORKOUT_TIMER_ELAPSED_KEY);
+    localStorage.removeItem(WORKOUT_TIMER_STATE_KEY);
   }
 
   function timerTimeLabel(timestamp) {
@@ -100,19 +115,49 @@
     return App.Utils?._localDateStr ? App.Utils._localDateStr(date) : date.toISOString().slice(0, 10);
   }
 
-  function setWorkoutTimerStart(timestamp, dateStr = null) {
+  function persistWorkoutTimerState(dateStr = null) {
+    if (workoutStartTime) {
+      localStorage.setItem(WORKOUT_TIMER_START_KEY, String(workoutStartTime));
+      localStorage.setItem(WORKOUT_TIMER_DATE_KEY, dateStr || timerDateLabel(workoutStartTime));
+    } else {
+      localStorage.removeItem(WORKOUT_TIMER_START_KEY);
+      if (dateStr) localStorage.setItem(WORKOUT_TIMER_DATE_KEY, dateStr);
+    }
+    localStorage.setItem(WORKOUT_TIMER_ELAPSED_KEY, String(Math.max(0, Math.floor(workoutElapsedSeconds || 0))));
+    localStorage.setItem(WORKOUT_TIMER_STATE_KEY, workoutTimerState || 'idle');
+  }
+
+  function setWorkoutTimerStart(timestamp, dateStr = null, elapsedSeconds = workoutElapsedSeconds) {
     const value = Number(timestamp);
     if (!Number.isFinite(value) || value <= 0) return;
     workoutStartTime = value;
-    localStorage.setItem(WORKOUT_TIMER_START_KEY, String(value));
-    localStorage.setItem(WORKOUT_TIMER_DATE_KEY, dateStr || timerDateLabel(value));
+    workoutElapsedSeconds = Math.max(0, Math.floor(safeNumber(elapsedSeconds, 0)));
+    workoutTimerState = 'running';
+    persistWorkoutTimerState(dateStr || timerDateLabel(value));
+  }
+
+  function setWorkoutTimerPaused(elapsedSeconds, dateStr = null) {
+    if (workoutTimer) {
+      clearInterval(workoutTimer);
+      workoutTimer = null;
+    }
+    workoutStartTime = null;
+    workoutElapsedSeconds = Math.max(0, Math.floor(safeNumber(elapsedSeconds, 0)));
+    workoutTimerState = workoutElapsedSeconds > 0 ? 'paused' : 'idle';
+    persistWorkoutTimerState(dateStr);
   }
 
   function savedWorkoutTimerForDate(dateStr) {
     const saved = Number(localStorage.getItem(WORKOUT_TIMER_START_KEY));
-    if (!Number.isFinite(saved) || saved <= 0) return null;
     const savedDate = localStorage.getItem(WORKOUT_TIMER_DATE_KEY) || timerDateLabel(saved);
-    return savedDate === dateStr ? saved : null;
+    if (savedDate !== dateStr) return null;
+    const elapsed = Number(localStorage.getItem(WORKOUT_TIMER_ELAPSED_KEY));
+    const state = localStorage.getItem(WORKOUT_TIMER_STATE_KEY) || (Number.isFinite(saved) && saved > 0 ? 'running' : 'idle');
+    return {
+      start: Number.isFinite(saved) && saved > 0 ? saved : null,
+      elapsedSeconds: Number.isFinite(elapsed) && elapsed > 0 ? elapsed : 0,
+      state
+    };
   }
 
   function parseWorkoutStart(workout) {
@@ -136,11 +181,16 @@
   }
 
   function timerDisplayText() {
-    if (!workoutStartTime) return '00:00';
-    const seconds = Math.max(0, Math.floor((Date.now() - workoutStartTime) / 1000));
+    const seconds = getWorkoutElapsedSeconds();
     const minutes = Math.floor(seconds / 60);
     const remain = seconds % 60;
     return `${String(minutes).padStart(2, '0')}:${String(remain).padStart(2, '0')}`;
+  }
+
+  function getWorkoutElapsedSeconds() {
+    const base = Math.max(0, Math.floor(safeNumber(workoutElapsedSeconds, 0)));
+    if (workoutTimerState !== 'running' || !workoutStartTime) return base;
+    return base + Math.max(0, Math.floor((Date.now() - workoutStartTime) / 1000));
   }
 
   function h(value) {
@@ -1372,6 +1422,8 @@
       const estimated = menuConfig?.estimatedMin || App.Training.getEstimatedDuration(currentWorkoutType);
       const isCompleted = workoutIsFinished(existingWorkout);
       const footerLabel = isCompleted ? '記録を更新する' : '今日はここまでで終了';
+      const timerRunning = workoutTimerState === 'running';
+      const timerHasValue = timerRunning || getWorkoutElapsedSeconds() > 0;
       const soreness = App.Training.sorenessContext(condition || {});
       const sorenessNote = soreness.active
           ? `<div class="reboot-empty-card reboot-soreness-note"><strong>張りのある部位を避けています</strong><span>${h(soreness.areas.join('、'))}にかかる種目は外しました。</span></div>`
@@ -1406,7 +1458,8 @@
                   </div>
                   <div class="reboot-timer-box">
                     <div class="reboot-timer-display" id="workout-timer-display">${timerDisplayText()}</div>
-                    <button class="btn ${workoutStartTime ? 'btn-danger' : 'btn-primary'}" id="workout-timer-toggle">${workoutStartTime ? '一時停止' : '開始'}</button>
+                    <button class="btn ${timerRunning ? 'btn-danger' : 'btn-primary'}" id="workout-timer-toggle">${timerRunning ? '一時停止' : (timerHasValue ? '再開' : '開始')}</button>
+                    <button class="btn btn-ghost" id="workout-timer-reset" ${timerHasValue ? '' : 'disabled'}>リセット</button>
                   </div>
                 </div>
 
@@ -1653,15 +1706,43 @@
         return;
       }
 
+      const timerState = workout?.timerState || '';
+      const timerElapsed = safeNumber(workout?.timerElapsedSeconds, 0);
+      if (timerState === 'paused') {
+        setWorkoutTimerPaused(timerElapsed, dateStr);
+        return;
+      }
+      if (timerState === 'idle') {
+        const saved = savedWorkoutTimerForDate(dateStr);
+        if (saved && saved.state !== 'idle') {
+          saved.state === 'paused'
+            ? setWorkoutTimerPaused(saved.elapsedSeconds, dateStr)
+            : setWorkoutTimerStart(saved.start || Date.now(), dateStr, saved.elapsedSeconds);
+          return;
+        }
+        clearWorkoutTimerState();
+        return;
+      }
+      if (timerState === 'running') {
+        const timerStartedAt = workout?.timerStartedAt ? Date.parse(workout.timerStartedAt) : NaN;
+        const segmentStart = Number.isFinite(timerStartedAt) && timerStartedAt > 0 ? timerStartedAt : parseWorkoutStart(workout);
+        if (segmentStart) {
+          setWorkoutTimerStart(segmentStart, dateStr, timerElapsed);
+          return;
+        }
+      }
+
       const cloudStart = parseWorkoutStart(workout);
       if (cloudStart) {
-        setWorkoutTimerStart(cloudStart, dateStr);
+        setWorkoutTimerStart(cloudStart, dateStr, 0);
         return;
       }
 
-      const savedStart = savedWorkoutTimerForDate(dateStr);
-      if (savedStart) {
-        setWorkoutTimerStart(savedStart, dateStr);
+      const saved = savedWorkoutTimerForDate(dateStr);
+      if (saved && saved.state !== 'idle') {
+        saved.state === 'paused'
+          ? setWorkoutTimerPaused(saved.elapsedSeconds, dateStr)
+          : setWorkoutTimerStart(saved.start || Date.now(), dateStr, saved.elapsedSeconds);
         return;
       }
 
@@ -1697,16 +1778,24 @@
     async _persistWorkoutDraft() {
       const today = App.Utils.today();
       this._updateDraftStatus('下書き保存中');
+      const elapsedSeconds = getWorkoutElapsedSeconds();
+      const timerFields = {
+        timerState: workoutTimerState || 'idle',
+        timerStartedAt: workoutTimerState === 'running' && workoutStartTime ? new Date(workoutStartTime).toISOString() : '',
+        timerElapsedSeconds: elapsedSeconds,
+        timerUpdatedAt: new Date().toISOString()
+      };
       if (!currentWorkoutId) {
         const startAt = workoutStartTime ? new Date(workoutStartTime).toISOString() : '';
         currentWorkoutId = await App.DB.saveWorkout({
           date: today,
           type: currentWorkoutType || 'custom',
-          status: startAt ? 'in_progress' : 'draft',
+          status: (startAt || elapsedSeconds > 0) ? 'in_progress' : 'draft',
           startAt,
           startTime: workoutStartTime ? timerTimeLabel(workoutStartTime) : '',
           endAt: '',
-          endTime: ''
+          endTime: '',
+          ...timerFields
         });
       } else {
         const existing = await App.DB.getWorkout(currentWorkoutId);
@@ -1720,7 +1809,7 @@
           id: currentWorkoutId,
           date: today,
           type: currentWorkoutType || existing?.type || 'custom',
-          status: ended ? (existing?.status || 'completed') : (startAt ? 'in_progress' : (existing?.status || 'draft')),
+          status: ended ? (existing?.status || 'completed') : ((startAt || elapsedSeconds > 0) ? 'in_progress' : (existing?.status || 'draft')),
           startAt,
           startTime: existing?.startTime || (workoutStartTime ? timerTimeLabel(workoutStartTime) : ''),
           endAt: convertingSkip ? '' : (existing?.endAt || ''),
@@ -1728,7 +1817,8 @@
           durationMinutes: convertingSkip ? 0 : (existing?.durationMinutes || 0),
           feeling: convertingSkip ? '' : existing?.feeling,
           memo: convertingSkip ? '' : (existing?.memo || ''),
-          skipReason: convertingSkip ? '' : (existing?.skipReason || '')
+          skipReason: convertingSkip ? '' : (existing?.skipReason || ''),
+          ...timerFields
         });
       }
       await App.DB.saveExercises(currentWorkoutId, currentExercises);
@@ -1941,37 +2031,85 @@
     async _toggleTimer() {
       const button = document.getElementById('workout-timer-toggle');
       if (!button) return;
-
-      if (workoutTimer) {
-        clearInterval(workoutTimer);
-        workoutTimer = null;
-        button.classList.remove('btn-danger');
-        button.classList.add('btn-primary');
-        button.textContent = '再開';
-        return;
-      }
-
-      if (!workoutStartTime) {
-        setWorkoutTimerStart(Date.now(), App.Utils.today());
-      }
-      workoutTimer = setInterval(() => this._updateTimerDisplay(), 1000);
-      button.classList.remove('btn-primary');
-      button.classList.add('btn-danger');
-      button.textContent = '一時停止';
-      this._updateTimerDisplay();
       button.disabled = true;
+
       try {
+        const today = App.Utils.today();
+        if (workoutTimerState === 'running') {
+          if (workoutTimer) {
+            clearInterval(workoutTimer);
+            workoutTimer = null;
+          }
+          setWorkoutTimerPaused(getWorkoutElapsedSeconds(), today);
+        } else {
+          setWorkoutTimerStart(Date.now(), today, getWorkoutElapsedSeconds());
+          if (!workoutTimer) {
+            workoutTimer = setInterval(() => this._updateTimerDisplay(), 1000);
+          }
+        }
+        this._updateTimerDisplay();
         await this._persistWorkoutDraft();
-        await this._flushCloudSave(App.Utils.today());
+        await this._flushCloudSave(today);
       } finally {
         button.disabled = false;
+        this._updateTimerDisplay();
       }
     },
 
     _updateTimerDisplay() {
       const slot = document.getElementById('workout-timer-display');
-      if (!slot || !workoutStartTime) return;
-      slot.textContent = timerDisplayText();
+      if (slot) slot.textContent = timerDisplayText();
+      const toggle = document.getElementById('workout-timer-toggle');
+      const reset = document.getElementById('workout-timer-reset');
+      const running = workoutTimerState === 'running';
+      const hasValue = running || getWorkoutElapsedSeconds() > 0;
+      if (toggle) {
+        toggle.classList.toggle('btn-danger', running);
+        toggle.classList.toggle('btn-primary', !running);
+        toggle.textContent = running ? '一時停止' : (hasValue ? '再開' : '開始');
+      }
+      if (reset) reset.disabled = !hasValue;
+    },
+
+    async resetTimer() {
+      const button = document.getElementById('workout-timer-reset');
+      if (button) button.disabled = true;
+      const today = App.Utils.today();
+      if (workoutTimer) {
+        clearInterval(workoutTimer);
+        workoutTimer = null;
+      }
+      clearWorkoutTimerState();
+      this._updateTimerDisplay();
+      try {
+        if (currentWorkoutId) {
+          const existing = await App.DB.getWorkout(currentWorkoutId);
+          await App.DB.saveWorkout({
+            ...(existing || {}),
+            id: currentWorkoutId,
+            date: today,
+            type: currentWorkoutType || existing?.type || 'custom',
+            status: 'draft',
+            startAt: '',
+            startTime: '',
+            endAt: '',
+            endTime: '',
+            durationMinutes: 0,
+            timerState: 'idle',
+            timerStartedAt: '',
+            timerElapsedSeconds: 0,
+            timerUpdatedAt: new Date().toISOString()
+          });
+          if (currentExercises.length > 0) await App.DB.saveExercises(currentWorkoutId, currentExercises);
+          await this._flushCloudSave(today);
+        }
+        App.Utils.showToast('タイマーをリセットしました', 'success');
+      } catch (error) {
+        App.Utils.showToast(`リセットに失敗しました: ${error.message}`, 'error');
+      } finally {
+        if (button) button.disabled = false;
+        this._updateTimerDisplay();
+      }
     },
 
     async _finishWorkout() {
@@ -2038,7 +2176,10 @@
           const existing = currentWorkoutId ? await App.DB.getWorkout(currentWorkoutId) : null;
           const startMs = workoutStartTime || parseWorkoutStart(existing) || Date.now();
           const endAt = new Date().toISOString();
-          const durationMinutes = startMs ? Math.max(1, Math.round((Date.now() - startMs) / 60000)) : 0;
+          const elapsedSeconds = getWorkoutElapsedSeconds();
+          const durationMinutes = elapsedSeconds > 0
+            ? Math.max(1, Math.round(elapsedSeconds / 60))
+            : (startMs ? Math.max(1, Math.round((Date.now() - startMs) / 60000)) : 0);
           const endTime = timerTimeLabel(Date.now());
 
           currentWorkoutId = await App.DB.saveWorkout({
@@ -2053,7 +2194,11 @@
             durationMinutes,
             feeling,
             memo,
-            skipReason: ''
+            skipReason: '',
+            timerState: 'completed',
+            timerStartedAt: '',
+            timerElapsedSeconds: elapsedSeconds,
+            timerUpdatedAt: new Date().toISOString()
           }, currentExercises);
 
           const pushResult = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout', 'exercises'] });
@@ -2123,7 +2268,11 @@
             skipReason: reasons.join(', '),
             memo,
             feeling: 0,
-            durationMinutes: 0
+            durationMinutes: 0,
+            timerState: 'idle',
+            timerStartedAt: '',
+            timerElapsedSeconds: 0,
+            timerUpdatedAt: new Date().toISOString()
           });
 
           const pushResult = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout'] });
@@ -2148,6 +2297,7 @@
 
     init() {
       document.getElementById('workout-timer-toggle')?.addEventListener('click', () => this._toggleTimer());
+      document.getElementById('workout-timer-reset')?.addEventListener('click', () => this.resetTimer());
       document.getElementById('finish-workout-btn')?.addEventListener('click', () => this._finishWorkout());
       document.getElementById('skip-workout-btn')?.addEventListener('click', () => this.saveSkip());
       document.getElementById('finish-stretch-btn')?.addEventListener('click', async () => {
@@ -2170,7 +2320,11 @@
             feeling: 4,
             memo: 'ストレッチ完了',
             skipReason: '',
-            durationMinutes: 10
+            durationMinutes: 10,
+            timerState: 'completed',
+            timerStartedAt: '',
+            timerElapsedSeconds: getWorkoutElapsedSeconds(),
+            timerUpdatedAt: new Date().toISOString()
           });
           const pushResult = await App.DB.pushToCloud(App.Utils.today(), { sections: ['workout'] });
           await App.Utils.showSharedSaveResult(pushResult, {
@@ -2191,10 +2345,12 @@
       });
 
       // タイマーがlocalStorageから復元されていたら自動再開
-      if (workoutStartTime && !workoutTimer) {
+      if (workoutTimerState === 'running' && workoutStartTime && !workoutTimer) {
         workoutTimer = setInterval(() => this._updateTimerDisplay(), 1000);
         this._updateTimerDisplay();
       } else if (workoutTimer) {
+        this._updateTimerDisplay();
+      } else {
         this._updateTimerDisplay();
       }
     },
