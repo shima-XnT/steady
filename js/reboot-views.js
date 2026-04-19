@@ -1086,6 +1086,27 @@
     return root ? root.outerHTML : html;
   };
 
+  function resizeExerciseSets(exercise, targetCount, weight, reps) {
+    if (!exercise || exercise.isCardio) return;
+    const count = Math.max(1, Math.round(safeNumber(targetCount, exercise.sets?.length || 1)));
+    const sets = Array.isArray(exercise.sets) ? exercise.sets : [];
+    while (sets.length < count) {
+      sets.push({
+        setNumber: sets.length + 1,
+        weight,
+        reps,
+        completed: false
+      });
+    }
+    if (sets.length > count) sets.length = count;
+    sets.forEach((set, index) => {
+      set.setNumber = index + 1;
+      set.weight = weight;
+      set.reps = reps;
+    });
+    exercise.sets = sets;
+  }
+
   function renderWorkoutExercise(exercise, index) {
     const done = countExerciseDone(exercise);
     const total = exercise.sets?.length || 0;
@@ -1093,7 +1114,7 @@
     const previousLine = exercise.previous ? formatTriplet(exercise.previous.weight || 0, exercise.previous.reps || 0, exercise.previous.sets || total) : '履歴なし';
     const recommendedLine = exercise.isCardio
       ? `${safeNumber(exercise.durationMin, 0)}分`
-      : formatTriplet(exercise.recommended?.weight || 0, exercise.recommended?.reps || 0, exercise.sets?.length || 0);
+      : formatTriplet(exercise.recommended?.weight || 0, exercise.recommended?.reps || 0, exercise.recommended?.sets || exercise.sets?.length || 0);
 
     return `
       <article class="reboot-exercise-card ${isExerciseDone(exercise) ? 'is-done' : ''}" data-workout-idx="${index}">
@@ -1171,6 +1192,43 @@
       </article>`;
   }
 
+  async function hydrateExerciseHistory(exercises, menuType, beforeDate) {
+    if (!Array.isArray(exercises) || !exercises.length || !menuType) return false;
+    const generated = await App.Training.generateMenu(menuType, { beforeDate });
+    const queues = new Map();
+    generated.forEach(seed => {
+      if (!queues.has(seed.name)) queues.set(seed.name, []);
+      queues.get(seed.name).push(seed);
+    });
+
+    let changed = false;
+    exercises.forEach(exercise => {
+      const seed = queues.get(exercise.name)?.shift();
+      if (!seed) return;
+
+      ['isCardio', 'isWarmup', 'isCooldown', 'optional', 'category', 'icon', 'durationMin'].forEach(key => {
+        if (exercise[key] == null && seed[key] != null) {
+          exercise[key] = seed[key];
+          changed = true;
+        }
+      });
+
+      if (!exercise.previous && seed.previous) {
+        exercise.previous = seed.previous;
+        changed = true;
+      }
+      if ((!exercise.recommended || !exercise.recommended.note || !exercise.recommended.sets) && seed.recommended) {
+        exercise.recommended = seed.recommended;
+        changed = true;
+      }
+      if (!exercise.progressionState && seed.progressionState) {
+        exercise.progressionState = seed.progressionState;
+        changed = true;
+      }
+    });
+    return changed;
+  }
+
   App.Views.Workout = {
     _manualMenuType: null,
     _restTimerInterval: null,
@@ -1193,7 +1251,10 @@
         currentWorkoutId = existingWorkout.id;
         if (existingWorkout.type === currentWorkoutType) {
           const savedExercises = await App.DB.getExercises(existingWorkout.id);
-          if (savedExercises.length > 0) currentExercises = savedExercises;
+          if (savedExercises.length > 0) {
+            currentExercises = savedExercises;
+            await hydrateExerciseHistory(currentExercises, currentWorkoutType, today);
+          }
         }
       }
 
@@ -1208,7 +1269,7 @@
       }
 
       if (currentExercises.length === 0 && currentWorkoutType) {
-        currentExercises = await App.Training.generateMenu(currentWorkoutType);
+        currentExercises = await App.Training.generateMenu(currentWorkoutType, { beforeDate: today });
       }
 
       if (currentWorkoutType === 'stretch') {
@@ -1565,11 +1626,8 @@
       if (!exercise || exercise.isCardio) return;
       const weight = safeNumber(exercise.recommended?.weight, 0);
       const reps = safeNumber(exercise.recommended?.reps, 0);
-      exercise.sets.forEach(set => {
-        set.weight = weight;
-        set.reps = reps;
-        set.completed = false;
-      });
+      resizeExerciseSets(exercise, exercise.recommended?.sets || exercise.sets?.length || 1, weight, reps);
+      exercise.sets.forEach(set => { set.completed = false; });
       this._refreshExerciseCard(exerciseIndex);
       this._refreshProgress();
       this._autoSave();
@@ -1580,11 +1638,8 @@
       if (!exercise?.previous || exercise.isCardio) return;
       const weight = safeNumber(exercise.previous.weight, 0);
       const reps = safeNumber(exercise.previous.reps, 0);
-      exercise.sets.forEach(set => {
-        set.weight = weight;
-        set.reps = reps;
-        set.completed = false;
-      });
+      resizeExerciseSets(exercise, exercise.previous.sets || exercise.sets?.length || 1, weight, reps);
+      exercise.sets.forEach(set => { set.completed = false; });
       this._refreshExerciseCard(exerciseIndex);
       this._refreshProgress();
       this._autoSave();
@@ -2638,30 +2693,12 @@
                 <div class="reboot-section-head">
                   <div>
                     <h3>同期状態</h3>
-                    <p>取得と送信の状態です。</p>
                   </div>
                 </div>
                 <div class="reboot-health-sync-grid">
                   <div class="reboot-health-sync-item">
-                    <span>データソース</span>
-                    <strong>${h(sourceLabel)}</strong>
-                    <small>${h(providerMeta.copy)}</small>
-                  </div>
-                  <div class="reboot-health-sync-item">
-                    <span>最終取得</span>
-                    <strong>${h(formatSyncTimestamp(lastHealthFetchAt || health?.fetchedAt, '未取得'))}</strong>
-                    <small>${h(App.Utils.formatDate(dateStr))}</small>
-                  </div>
-                  <div class="reboot-health-sync-item">
-                    <span>最終送信</span>
-                    <strong>${h(formatSyncTimestamp(lastHealthPushAt, '未送信'))}</strong>
-                    <small>${pendingCount > 0 ? `未送信 ${pendingCount}件` : (lastHealthPushAt ? '直近の健康データ送信です' : 'まだ送信していません')}</small>
-                  </div>
-                  <div class="reboot-health-sync-item reboot-health-sync-item-status">
-                    <span>保存状態</span>
-                    <strong>${h(saveLabel)}</strong>
-                    <small>${h(saveDetail)}</small>
-                    <span class="data-status ${h(saveTone)}"><span class="data-status-dot"></span>${h(saveLabel)}</span>
+                    <span>最終更新</span>
+                    <strong>${h(formatSyncTimestamp(lastSyncAt, '未同期'))}</strong>
                   </div>
                 </div>
               </section>

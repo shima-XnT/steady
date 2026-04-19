@@ -47,7 +47,7 @@
 
       // メニュー生成（既存データがなければ）
       if (currentExercises.length === 0 && menuType) {
-        currentExercises = await App.Training.generateMenu(menuType);
+        currentExercises = await App.Training.generateMenu(menuType, { beforeDate: today });
       }
 
       // ストレッチメニューの場合
@@ -166,7 +166,7 @@
               </div>` : ''}
             ${ex.recommended && !ex.isCardio ? `
               <div class="text-xs mt-4" style="color:var(--accent);">
-                💡 次回推奨: ${ex.recommended.weight > 0 ? ex.recommended.weight + 'kg × ' : ''}${ex.recommended.reps}回
+                💡 今回推奨: ${ex.recommended.weight > 0 ? ex.recommended.weight + 'kg × ' : ''}${ex.recommended.reps}回 × ${ex.recommended.sets || ex.sets?.length || 0}セット
                 ${ex.recommended.note ? `<span class="text-muted"> — ${ex.recommended.note}</span>` : ''}
               </div>` : ''}
           </div>
@@ -398,7 +398,7 @@
 
     async forceStart() {
       menuType = 'short';
-      currentExercises = await App.Training.generateMenu('short');
+      currentExercises = await App.Training.generateMenu('short', { beforeDate: App.Utils.today() });
       App.refreshView();
     },
 

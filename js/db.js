@@ -364,38 +364,48 @@
       return db.workouts.orderBy('date').reverse().first();
     },
 
-    async getLastExerciseByName(name) {
-      const workouts = await db.workouts.orderBy('date').reverse().limit(10).toArray();
-      let lastFound = null;
-      let successStreak = 0;
-      let streakBroken = false;
+    async getExerciseHistoryByName(name, beforeDate = null, limit = 8) {
+      const query = beforeDate
+        ? db.workouts.where('date').below(beforeDate).reverse()
+        : db.workouts.orderBy('date').reverse();
+      const workouts = await query.limit(Math.max(limit * 3, 20)).toArray();
+      const history = [];
 
       for (const w of workouts) {
-        const exs = await db.exercises.where('workoutId').equals(w.id).toArray();
+        if (w.type === 'skip') continue;
+        const exs = await db.exercises.where('workoutId').equals(w.id).sortBy('orderIndex');
         const found = exs.find(e => e.name === name);
         if (!found) continue;
 
-        if (!lastFound) {
-          lastFound = { ...found, workoutDate: w.date };
-        }
-
-        const sets = typeof found.sets === 'object' ? found.sets : [];
-        if (sets.length > 0) {
-          const allCompleted = sets.every(s => s.completed);
-          const allHitTarget = sets.every(s => (s.reps || 0) >= 12);
-          if (allCompleted && allHitTarget && !streakBroken) {
-            successStreak++;
-          } else {
-            streakBroken = true;
-          }
-        } else {
-          streakBroken = true;
-        }
+        const sortedSets = Array.isArray(found.sets)
+          ? [...found.sets].sort((a, b) => (a.setNumber || 0) - (b.setNumber || 0))
+          : [];
+        history.push({
+          ...found,
+          sets: sortedSets,
+          workoutDate: w.date,
+          workoutType: w.type || 'full',
+          workoutFeeling: w.feeling ?? null
+        });
+        if (history.length >= limit) break;
       }
 
-      if (lastFound) {
-        lastFound.successStreak = successStreak;
+      return history;
+    },
+
+    async getLastExerciseByName(name, beforeDate = null) {
+      const history = await this.getExerciseHistoryByName(name, beforeDate, 8);
+      if (!history.length) return null;
+
+      const lastFound = { ...history[0] };
+      let successStreak = 0;
+      for (const item of history) {
+        const sets = Array.isArray(item.sets) ? item.sets : [];
+        const allCompleted = sets.length > 0 && sets.every(s => s.completed);
+        if (!allCompleted || item.workoutType !== 'full') break;
+        successStreak++;
       }
+      lastFound.successStreak = successStreak;
       return lastFound;
     },
 
@@ -429,7 +439,7 @@
     async getDateSyncData(dateStr) {
       const schedule = await this.getSchedule(dateStr);
       const workout = await db.workouts.where('date').equals(dateStr).first();
-      const exercises = workout ? await db.exercises.where('workoutId').equals(workout.id).toArray() : [];
+      const exercises = workout ? await db.exercises.where('workoutId').equals(workout.id).sortBy('orderIndex') : [];
       const health = await this.getHealth(dateStr);
       const condition = await this.getCondition(dateStr);
       const judgment = await this.getJudgment(dateStr);
@@ -474,9 +484,10 @@
           }
           if (data.exercises && data.exercises.length > 0 && workoutId) {
             await db.exercises.where('workoutId').equals(workoutId).delete();
-            const exs = data.exercises.map(e => {
+            const exs = data.exercises.map((e, index) => {
               const ex = { ...e, workoutId };
               delete ex.id;
+              ex.orderIndex = index;
               return ex;
             });
             await db.exercises.bulkAdd(exs);

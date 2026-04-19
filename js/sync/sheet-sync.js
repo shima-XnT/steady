@@ -172,9 +172,19 @@
           (remoteData.health.heartRateAvg != null && localData.health.heartRateAvg == null) ||
           (remoteData.health.restingHeartRate != null && localData.health.restingHeartRate == null)
         );
+        const hasExerciseGap = localData && Array.isArray(remoteData.exercises) && remoteData.exercises.length > 0 && (
+          !Array.isArray(localData.exercises) ||
+          localData.exercises.length < remoteData.exercises.length ||
+          localData.exercises.some((ex, index) => {
+            const remoteExercise = remoteData.exercises[index] || {};
+            return !Array.isArray(ex.sets) ||
+              ex.sets.length === 0 ||
+              (remoteExercise.recommended?.sets != null && ex.recommended?.sets == null);
+          })
+        );
 
-        if (remoteNewer || hasLocalGap || hasHealthFieldGap) {
-          console.log(`Updating local data for ${remoteData.date} from remote. (newer=${remoteNewer}, gap=${hasLocalGap}, healthGap=${hasHealthFieldGap})`);
+        if (remoteNewer || hasLocalGap || hasHealthFieldGap || hasExerciseGap) {
+          console.log(`Updating local data for ${remoteData.date} from remote. (newer=${remoteNewer}, gap=${hasLocalGap}, healthGap=${hasHealthFieldGap}, exerciseGap=${hasExerciseGap})`);
           remoteData._fromSync = true; 
           await window.App.DB.putDateSync(remoteData);
           updatedSomething = true;

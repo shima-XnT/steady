@@ -557,7 +557,7 @@ function _appendWorkoutDetails(d) {
           s.weight||0, s.reps||0, sets.length,
           s.completed ? 'yes' : 'no',
           ex.recommended ? (ex.recommended.weight||'') : '', ex.recommended ? (ex.recommended.reps||'') : '',
-          '', d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
+          ex.recommended ? (ex.recommended.note||'') : '', d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
         ]);
       }
     }
@@ -795,6 +795,79 @@ function _getAll() {
       if (obj.updatedAt && _safeDateTs(obj.updatedAt) > _safeDateTs(byDate[d].updatedAt)) {
         byDate[d].updatedAt = obj.updatedAt;
       }
+    }
+  }
+
+  // --- workout_details -> exercises ---
+  var detailsSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('workout_details');
+  if (detailsSheet && detailsSheet.getLastRow() > 1) {
+    var detailHeaders = detailsSheet.getRange(1, 1, 1, detailsSheet.getLastColumn()).getValues()[0];
+    var detailRows = detailsSheet.getRange(2, 1, detailsSheet.getLastRow() - 1, detailsSheet.getLastColumn()).getValues();
+    var currentByDate = {};
+    for (var wi = 0; wi < detailRows.length; wi++) {
+      var detail = {};
+      detailHeaders.forEach(function(h, idx) { detail[h] = detailRows[wi][idx]; });
+      var wd = _normDate(detail.date);
+      if (!wd) continue;
+      if (!byDate[wd]) byDate[wd] = { date: wd };
+      if (!byDate[wd].workout) {
+        byDate[wd].workout = {
+          date: wd,
+          type: detail.workoutType || 'full'
+        };
+      }
+      if (!byDate[wd].exercises) byDate[wd].exercises = [];
+
+      var exerciseName = detail.exerciseName || '';
+      var setIndex = Number(detail.setIndex) || 1;
+      var weight = _numberOrNull(detail.weightKg);
+      var reps = _numberOrNull(detail.reps);
+      var targetWeight = _numberOrNull(detail.targetWeightKg);
+      var targetReps = _numberOrNull(detail.targetReps);
+      var note = detail.note || '';
+      var isCardio = _looksLikeDurationNote(note) || (weight === 0 && reps === 0 && Number(detail.setCount) === 1);
+      var current = currentByDate[wd];
+      var shouldStartExercise = !current
+        || current.name !== exerciseName
+        || (setIndex <= current._lastSetIndex && current.sets.length > 0);
+
+      if (shouldStartExercise) {
+        current = {
+          name: exerciseName,
+          sets: [],
+          isCardio: isCardio,
+          durationMin: isCardio ? _extractMinutes(note) : 0,
+          recommended: {
+            weight: targetWeight != null ? targetWeight : 0,
+            reps: targetReps != null ? targetReps : 0,
+            sets: Number(detail.setCount) || 0,
+            note: isCardio ? '' : (detail.note || '')
+          },
+          _lastSetIndex: 0
+        };
+        byDate[wd].exercises.push(current);
+        currentByDate[wd] = current;
+      }
+
+      current.sets.push({
+        setNumber: setIndex,
+        weight: weight != null ? weight : 0,
+        reps: reps != null ? reps : 0,
+        completed: _isYes(detail.completed)
+      });
+      current._lastSetIndex = setIndex;
+      if (isCardio) current.durationMin = current.durationMin || _extractMinutes(note);
+
+      if (detail.updatedAt && _safeDateTs(detail.updatedAt) > _safeDateTs(byDate[wd].updatedAt)) {
+        byDate[wd].updatedAt = detail.updatedAt;
+      }
+    }
+    for (var ed in byDate) {
+      if (!byDate[ed].exercises) continue;
+      byDate[ed].exercises.forEach(function(ex, idx) {
+        delete ex._lastSetIndex;
+        ex.orderIndex = idx;
+      });
     }
   }
 
@@ -1129,6 +1202,29 @@ function _isLikelyScore(v) {
   if (_isBlankCell(v)) return false;
   var n = Number(v);
   return !isNaN(n) && n >= 0 && n <= 5;
+}
+
+function _numberOrNull(v) {
+  if (_isBlankCell(v)) return null;
+  var n = Number(v);
+  return isNaN(n) ? null : n;
+}
+
+function _isYes(v) {
+  if (v === true) return true;
+  var s = String(v || '').toLowerCase();
+  return s === 'yes' || s === 'true' || s === '1' || s === 'done';
+}
+
+function _looksLikeDurationNote(v) {
+  if (_isBlankCell(v)) return false;
+  return /(\d+)\s*(分|min)/i.test(String(v));
+}
+
+function _extractMinutes(v) {
+  if (_isBlankCell(v)) return 0;
+  var m = String(v).match(/(\d+)\s*(分|min)/i);
+  return m ? Number(m[1]) || 0 : 0;
 }
 
 function _isBlankCell(v) {

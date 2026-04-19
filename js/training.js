@@ -80,6 +80,130 @@
     }
   };
 
+  const PROGRESSION = {
+    repMin: 8,
+    repMax: 12,
+    legPressWeightCap: 60,
+    legPressRepCap: 30,
+    weightStep: 2.5,
+    weightStableStreak: 2,
+    setStableStreak: 4,
+    legSetStableStreak: 3
+  };
+
+  const EXERCISE_PROFILES = {
+    leg_press: { role: 'main', maxSets: 4, weightCap: 60, highRepCap: 30 },
+    chest_press: { role: 'main', maxSets: 4 },
+    lat_pulldown: { role: 'main', maxSets: 4 },
+    shoulder_press: { role: 'main', maxSets: 4 },
+    biceps_curl: { role: 'assist', maxSets: 3 },
+    dips: { role: 'assist', maxSets: 3, weightStep: 0 },
+    ab_bench: { role: 'assist', maxSets: 3, weightStep: 0 },
+    adduction: { role: 'assist', maxSets: 3 }
+  };
+
+  function num(value, fallback = 0) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function roundToStep(value, step = PROGRESSION.weightStep) {
+    if (!step) return Math.max(0, value);
+    return Math.max(0, Math.round(value / step) * step);
+  }
+
+  function profileFor(equipment, flags, defaults) {
+    const base = EXERCISE_PROFILES[equipment.id] || {};
+    const isAssist = flags.optional || base.role === 'assist';
+    return {
+      ...base,
+      repMin: base.repMin || PROGRESSION.repMin,
+      repMax: base.repMax || PROGRESSION.repMax,
+      maxSets: base.maxSets || (isAssist ? 3 : 4),
+      defaultWeight: defaults.weight || 0,
+      defaultReps: defaults.reps || 10,
+      defaultSets: defaults.sets || 2,
+      weightStep: base.weightStep ?? PROGRESSION.weightStep,
+      isMain: !isAssist,
+      isLegPress: equipment.id === 'leg_press'
+    };
+  }
+
+  function analyzeRun(run, profile) {
+    const sets = Array.isArray(run?.sets)
+      ? [...run.sets].sort((a, b) => (a.setNumber || 0) - (b.setNumber || 0))
+      : [];
+    const completed = sets.filter(set => set.completed);
+    const measured = completed.length > 0 ? completed : sets;
+    const repsList = measured.map(set => num(set.reps, 0)).filter(v => v > 0);
+    const weightList = measured.map(set => num(set.weight, 0)).filter(v => v >= 0);
+    const minReps = repsList.length ? Math.min(...repsList) : profile.defaultReps;
+    const maxReps = repsList.length ? Math.max(...repsList) : profile.defaultReps;
+    const workingWeight = weightList.length ? Math.min(...weightList) : profile.defaultWeight;
+    const setCount = sets.length || profile.defaultSets;
+    const allCompleted = sets.length > 0 && completed.length === sets.length;
+    return {
+      allCompleted,
+      completedSets: completed.length,
+      setCount,
+      weight: workingWeight,
+      minReps,
+      maxReps,
+      hitUpper: allCompleted && minReps >= profile.repMax,
+      failedHard: sets.length > 0 && (!allCompleted || minReps < profile.repMin)
+    };
+  }
+
+  function stableStreak(history, profile) {
+    let stable = 0;
+    for (const item of history) {
+      if (item.workoutType && item.workoutType !== 'full') continue;
+      const perf = analyzeRun(item, profile);
+      if (!perf.allCompleted || perf.minReps < profile.repMax) break;
+      stable++;
+    }
+    return stable;
+  }
+
+  function failureStreak(history, profile) {
+    let failures = 0;
+    for (const item of history) {
+      if (item.workoutType && item.workoutType !== 'full') continue;
+      const perf = analyzeRun(item, profile);
+      if (!perf.failedHard) break;
+      failures++;
+    }
+    return failures;
+  }
+
+  function daysBetween(dateStr, todayStr) {
+    if (!dateStr || !todayStr) return 0;
+    const from = new Date(`${dateStr}T00:00:00`);
+    const to = new Date(`${todayStr}T00:00:00`);
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return 0;
+    return Math.max(0, Math.floor((to - from) / 86400000));
+  }
+
+  function nextLegPressReps(reps) {
+    if (reps < 12) return reps + 1;
+    if (reps < 15) return reps + 1;
+    if (reps < 25) return Math.min(25, reps + 2);
+    return Math.min(PROGRESSION.legPressRepCap, reps + 1);
+  }
+
+  function buildSets(count, weight, reps) {
+    return Array.from({ length: count }, (_, index) => ({
+      setNumber: index + 1,
+      weight,
+      reps,
+      completed: false
+    }));
+  }
+
   const Training = {
     EQUIPMENT,
     DEFAULTS,
@@ -118,35 +242,43 @@
       }
 
       const exercises = [];
+      const beforeDate = options.beforeDate || null;
+      const historyFor = async (exerciseName) => {
+        if (App.DB.getExerciseHistoryByName) {
+          return App.DB.getExerciseHistoryByName(exerciseName, beforeDate, 8);
+        }
+        const last = await App.DB.getLastExerciseByName(exerciseName, beforeDate);
+        return last ? [last] : [];
+      };
 
       // ウォームアップ
       for (const id of config.warmup) {
         const eq = EQUIPMENT.find(e => e.id === id);
-        const prev = await App.DB.getLastExerciseByName(eq.name);
-        exercises.push(this._buildExercise(eq, prev, { isWarmup: true, menuType }));
+        const history = await historyFor(eq.name);
+        exercises.push(this._buildExercise(eq, history, { isWarmup: true, menuType, today: beforeDate }));
       }
 
       // メイン種目
       for (const id of config.main) {
         const eq = EQUIPMENT.find(e => e.id === id);
         if (!eq) continue;
-        const prev = await App.DB.getLastExerciseByName(eq.name);
-        exercises.push(this._buildExercise(eq, prev, { menuType }));
+        const history = await historyFor(eq.name);
+        exercises.push(this._buildExercise(eq, history, { menuType, today: beforeDate }));
       }
 
       // オプション種目
       for (const id of config.optional) {
         const eq = EQUIPMENT.find(e => e.id === id);
         if (!eq) continue;
-        const prev = await App.DB.getLastExerciseByName(eq.name);
-        exercises.push(this._buildExercise(eq, prev, { optional: true, menuType }));
+        const history = await historyFor(eq.name);
+        exercises.push(this._buildExercise(eq, history, { optional: true, menuType, today: beforeDate }));
       }
 
       // クールダウン
       for (const id of config.cooldown) {
         const eq = EQUIPMENT.find(e => e.id === id);
-        const prev = await App.DB.getLastExerciseByName(eq.name);
-        exercises.push(this._buildExercise(eq, prev, { isCooldown: true, menuType }));
+        const history = await historyFor(eq.name);
+        exercises.push(this._buildExercise(eq, history, { isCooldown: true, menuType, today: beforeDate }));
       }
 
       return exercises;
@@ -163,7 +295,8 @@
      * - 未完了セットあり → 据え置き
      * - 7日以上ブランク → -10%軽減して再開
      */
-    _buildExercise(equipment, prevData, flags = {}) {
+    // Deprecated reference only. Active menu generation uses _buildExercise() below.
+    _buildExerciseLegacy(equipment, prevData, flags = {}) {
       const def = DEFAULTS[equipment.id] || { weight: 0, reps: 10, sets: 2 };
       const isCardio = equipment.category === '有酸素';
       const menuType = flags.menuType || 'full';
@@ -290,6 +423,194 @@
     /**
      * メニュータイプの推定所要時間
      */
+    _buildExercise(equipment, historyInput, flags = {}) {
+      const def = DEFAULTS[equipment.id] || { weight: 0, reps: 10, sets: 2 };
+      const isCardio = equipment.category === '譛蛾・邏';
+      const menuType = flags.menuType || 'full';
+      const profile = profileFor(equipment, flags, def);
+      const history = Array.isArray(historyInput)
+        ? historyInput.filter(Boolean)
+        : (historyInput ? [historyInput] : []);
+      const latest = history[0] || null;
+      const basis = menuType === 'full'
+        ? (history.find(item => !item.workoutType || item.workoutType === 'full') || latest)
+        : latest;
+      const perf = basis ? analyzeRun(basis, profile) : null;
+      const stable = stableStreak(history, profile);
+      const failures = failureStreak(history, profile);
+      const today = flags.today || App.Utils?.today?.() || new Date().toISOString().slice(0, 10);
+      const daysSinceLast = latest?.workoutDate ? daysBetween(latest.workoutDate, today) : 0;
+      const progressAllowed = menuType === 'full' && !flags.isWarmup && !flags.isCooldown;
+
+      let weight = perf ? perf.weight : def.weight;
+      let reps = perf ? perf.minReps : def.reps;
+      let sets = perf ? perf.setCount : def.sets;
+      let note = '初回はフォーム優先';
+      let phase = 'form';
+      let capReached = false;
+
+      if (isCardio) {
+        const durationMin = flags.isWarmup || flags.isCooldown ? 5 : (def.durationMin || 10);
+        return {
+          name: equipment.name,
+          equipmentId: equipment.id,
+          category: equipment.category,
+          icon: equipment.icon,
+          isCardio,
+          isWarmup: !!flags.isWarmup,
+          isCooldown: !!flags.isCooldown,
+          optional: !!flags.optional,
+          sets: buildSets(1, 0, 0),
+          durationMin,
+          previous: latest ? {
+            date: latest.workoutDate,
+            weight: 0,
+            reps: 0,
+            sets: latest.sets?.length || 1,
+            successStreak: stable
+          } : null,
+          recommended: { weight: 0, reps: 0, sets: 1, note: '時間だけ調整' },
+          progressionState: { phase: 'cardio', stableStreak: stable, failureStreak: failures, daysSince: daysSinceLast }
+        };
+      }
+
+      if (flags.isWarmup || flags.isCooldown) {
+        sets = 1;
+        reps = 0;
+        note = flags.isWarmup ? 'ウォームアップ' : 'クールダウン';
+        phase = 'warmup';
+      } else if (!basis) {
+        weight = def.weight;
+        reps = def.reps;
+        sets = def.sets;
+      } else if (daysSinceLast >= 14 && weight > 0) {
+        weight = roundToStep(weight * 0.85, profile.weightStep);
+        reps = profile.repMin;
+        sets = Math.max(profile.defaultSets, Math.min(sets, profile.defaultSets + 1));
+        note = '14日以上空いたので軽め';
+        phase = 'deload';
+      } else if (daysSinceLast >= 7 && weight > 0) {
+        weight = roundToStep(weight * 0.9, profile.weightStep);
+        reps = profile.repMin;
+        note = '7日以上空いたので軽め';
+        phase = 'deload';
+      } else if (!progressAllowed) {
+        reps = clamp(reps, profile.repMin, profile.isLegPress && weight >= PROGRESSION.legPressWeightCap ? PROGRESSION.legPressRepCap : profile.repMax);
+        sets = Math.min(sets, Math.max(profile.defaultSets, 2));
+        note = '調整日: 据え置き';
+        phase = 'maintain';
+      } else if (perf?.failedHard) {
+        if (failures >= 2 && weight > 0) {
+          weight = roundToStep(Math.max(0, weight - profile.weightStep), profile.weightStep);
+          reps = profile.repMin;
+          note = '未達が続いたので軽め';
+        } else {
+          reps = clamp(Math.max(profile.repMin, reps - 1), profile.repMin, profile.repMax);
+          note = '重量維持で整える';
+        }
+        phase = 'reset';
+      } else if (profile.isLegPress) {
+        if (weight >= PROGRESSION.legPressWeightCap) {
+          weight = PROGRESSION.legPressWeightCap;
+          capReached = true;
+          if (perf?.allCompleted && stable >= PROGRESSION.legSetStableStreak && reps >= 20 && sets < profile.maxSets) {
+            sets += 1;
+            reps = 20;
+            note = '60kg固定でセット追加';
+            phase = 'volume';
+          } else if (perf?.allCompleted && reps < PROGRESSION.legPressRepCap) {
+            reps = nextLegPressReps(reps);
+            note = '60kg固定で回数を伸ばす';
+            phase = 'high-rep';
+          } else {
+            reps = Math.min(reps, PROGRESSION.legPressRepCap);
+            note = '60kg上限を維持';
+            phase = 'cap-maintain';
+          }
+        } else if (perf?.allCompleted && reps < profile.repMax) {
+          reps += 1;
+          note = '回数を1つ増やす';
+          phase = 'reps';
+        } else if (perf?.allCompleted && stable >= PROGRESSION.weightStableStreak) {
+          weight = Math.min(PROGRESSION.legPressWeightCap, roundToStep(weight + profile.weightStep, profile.weightStep));
+          reps = weight >= PROGRESSION.legPressWeightCap ? 10 : profile.repMin;
+          note = weight >= PROGRESSION.legPressWeightCap ? '60kg到達。次は回数' : '+2.5kg候補';
+          phase = 'weight';
+          capReached = weight >= PROGRESSION.legPressWeightCap;
+        } else if (perf?.allCompleted) {
+          note = '重量維持。次回アップ候補';
+          phase = 'stabilize';
+        }
+      } else if (perf?.allCompleted && reps < profile.repMax) {
+        reps += 1;
+        note = '回数を1つ増やす';
+        phase = 'reps';
+      } else if (perf?.allCompleted && stable >= PROGRESSION.setStableStreak && sets < profile.maxSets) {
+        sets += 1;
+        reps = profile.repMin;
+        note = profile.isMain ? '安定したのでセット追加' : '補助は軽くセット追加';
+        phase = 'volume';
+      } else if (perf?.allCompleted && stable >= PROGRESSION.weightStableStreak && profile.weightStep > 0) {
+        weight = roundToStep(weight + profile.weightStep, profile.weightStep);
+        reps = profile.repMin;
+        note = '+2.5kg候補';
+        phase = 'weight';
+      } else if (perf?.allCompleted) {
+        note = '重量維持。次回アップ候補';
+        phase = 'stabilize';
+      }
+
+      if (profile.isLegPress) {
+        weight = Math.min(PROGRESSION.legPressWeightCap, weight);
+        if (weight >= PROGRESSION.legPressWeightCap) {
+          capReached = true;
+          reps = Math.min(reps, PROGRESSION.legPressRepCap);
+        }
+      }
+
+      sets = clamp(Math.round(sets), 1, profile.maxSets);
+      reps = Math.max(0, Math.round(reps));
+      weight = profile.weightStep ? roundToStep(weight, profile.weightStep) : Math.max(0, weight);
+
+      const prevInfo = basis ? {
+        date: basis.workoutDate,
+        weight: perf.weight,
+        reps: perf.minReps,
+        sets: perf.setCount,
+        completedSets: perf.completedSets,
+        successStreak: stable,
+        phase
+      } : null;
+
+      return {
+        name: equipment.name,
+        equipmentId: equipment.id,
+        category: equipment.category,
+        icon: equipment.icon,
+        isCardio,
+        isWarmup: !!flags.isWarmup,
+        isCooldown: !!flags.isCooldown,
+        optional: !!flags.optional,
+        sets: buildSets(sets, weight, reps),
+        durationMin: 0,
+        previous: prevInfo,
+        recommended: {
+          weight,
+          reps,
+          sets,
+          note
+        },
+        progressionState: {
+          phase,
+          stableStreak: stable,
+          failureStreak: failures,
+          daysSince: daysSinceLast,
+          capReached,
+          progressAllowed
+        }
+      };
+    },
+
     getEstimatedDuration(menuType) {
       const config = MENU_CONFIGS[menuType];
       return config ? config.estimatedMin : 0;
