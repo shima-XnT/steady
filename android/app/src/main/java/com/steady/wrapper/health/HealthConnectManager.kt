@@ -16,6 +16,12 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 
+data class SleepSummary(
+    val minutes: Long,
+    val startAt: String?,
+    val endAt: String?
+)
+
 /**
  * Health Connectへの実際のアクセスを行うマネージャークラス
  */
@@ -53,8 +59,15 @@ class HealthConnectManager(private val context: Context) {
      * 指定された日付に終わる睡眠セッションの合計分数を取得する
      */
     suspend fun getSleepMinutes(dateStr: String): Long? {
+         return getSleepSummary(dateStr)?.minutes
+    }
+
+    /**
+     * 指定された日付に終わる睡眠セッションの合計分数と、最初の就寝/最後の起床時刻を取得する
+     */
+    suspend fun getSleepSummary(dateStr: String): SleepSummary? {
          if (!isAvailable()) return null
-         
+          
          try {
              // 睡眠は前日の夜〜当日にかけて記録されることが多いため、前日昼12時から当日昼12時をターゲットにする
              val date = LocalDate.parse(dateStr)
@@ -72,10 +85,16 @@ class HealthConnectManager(private val context: Context) {
              if (response.records.isEmpty()) return null
              
              var totalMinutes = 0L
+             var sleepStart = response.records.minOfOrNull { it.startTime }
+             var sleepEnd = response.records.maxOfOrNull { it.endTime }
              response.records.forEach { record ->
                  totalMinutes += ChronoUnit.MINUTES.between(record.startTime, record.endTime)
              }
-             return totalMinutes
+             return SleepSummary(
+                 minutes = totalMinutes,
+                 startAt = sleepStart?.atZone(zone)?.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                 endAt = sleepEnd?.atZone(zone)?.format(java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+             )
          } catch (e: Exception) {
              Log.e(TAG, "Error reading sleep: \${e.message}")
              return null

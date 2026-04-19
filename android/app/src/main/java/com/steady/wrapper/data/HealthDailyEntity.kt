@@ -8,6 +8,8 @@ data class HealthDailyEntity(
     @PrimaryKey val date: String, // YYYY-MM-DD
     val steps: Long?,
     val sleepMinutes: Long?,
+    val sleepStartAt: String? = null,
+    val sleepEndAt: String? = null,
     val avgHeartRate: Long?,
     val restingHeartRate: Long?,
     val source: String = "health_connect",

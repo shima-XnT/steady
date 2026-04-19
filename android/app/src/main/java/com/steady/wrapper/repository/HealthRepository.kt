@@ -25,7 +25,8 @@ class HealthRepository(
 
         try {
             val steps = healthConnectManager.getSteps(dateStr)
-            val sleep = healthConnectManager.getSleepMinutes(dateStr)
+            val sleepSummary = healthConnectManager.getSleepSummary(dateStr)
+            val sleep = sleepSummary?.minutes
             val heartRate = healthConnectManager.getAverageHeartRate(dateStr)
             val restingHr = healthConnectManager.getRestingHeartRate(dateStr)
 
@@ -39,6 +40,8 @@ class HealthRepository(
                 date = dateStr,
                 steps = steps,
                 sleepMinutes = sleep,
+                sleepStartAt = sleepSummary?.startAt,
+                sleepEndAt = sleepSummary?.endAt,
                 avgHeartRate = heartRate,
                 restingHeartRate = restingHr,
                 source = "health_connect",
@@ -56,7 +59,8 @@ class HealthRepository(
                 dao.insertOrUpdate(
                     HealthDailyEntity(
                         date = dateStr,
-                        steps = null, sleepMinutes = null, avgHeartRate = null, restingHeartRate = null,
+                        steps = null, sleepMinutes = null, sleepStartAt = null, sleepEndAt = null,
+                        avgHeartRate = null, restingHeartRate = null,
                         source = "health_connect",
                         syncedAt = ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                         status = "error"

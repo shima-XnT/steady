@@ -85,10 +85,12 @@ class MainActivity : AppCompatActivity() {
                     appendLine("📅 ${today}")
                     appendLine("🚶 歩数: ${entity.steps ?: "—"}")
                     appendLine("😴 睡眠: ${entity.sleepMinutes?.let { "${it}分 (${it/60}h${it%60}m)" } ?: "—"}")
+                    appendLine("🛌 就寝: ${entity.sleepStartAt?.take(16)?.replace('T', ' ') ?: "—"}")
+                    appendLine("☀️ 起床: ${entity.sleepEndAt?.take(16)?.replace('T', ' ') ?: "—"}")
                     appendLine("💓 心拍: ${entity.avgHeartRate ?: "—"} bpm")
                     appendLine("🫀 安静時: ${entity.restingHeartRate ?: "—"} bpm")
                     appendLine("")
-                    appendLine("最終取得: ${entity.syncedAt?.take(19) ?: "—"}")
+                    appendLine("最終取得: ${entity.syncedAt.take(19)}")
                 }
             } else {
                 "今日のデータはまだありません"

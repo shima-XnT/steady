@@ -186,6 +186,8 @@ function _handleLegacyPost(data) {
       date: dateStr,
       steps: data.health.steps,
       sleepMinutes: data.health.sleepMinutes,
+      sleepStartAt: data.health.sleepStartAt,
+      sleepEndAt: data.health.sleepEndAt,
       heartRateAvg: data.health.heartRateAvg,
       restingHeartRate: data.health.restingHeartRate,
       weightKg: data.health.weightKg,
@@ -404,12 +406,18 @@ function _computeWorkoutDuration(dateStr) {
   var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
   var dateIdx = headers.indexOf('date');
   var noteIdx = headers.indexOf('note');
+  var durationIdx = headers.indexOf('durationMin');
   var totalMin = 0;
   var found = false;
   for (var i = 0; i < data.length; i++) {
     if (_normDate(data[i][dateIdx]) !== _normDate(dateStr)) continue;
     found = true;
-    var note = String(data[i][noteIdx] || '');
+    var durationCell = durationIdx > -1 ? _numberOrNull(data[i][durationIdx]) : null;
+    if (durationCell != null && durationCell > 0) {
+      totalMin += durationCell;
+      continue;
+    }
+    var note = String(noteIdx > -1 ? (data[i][noteIdx] || '') : '');
     // '30分' のようなパターンから分数を抽出
     var match = note.match(/(\d+)分/);
     if (match) {
@@ -603,6 +611,8 @@ function _rebuildDailySummary(dateStr, src, by, updatedAt, condJudgPatch, client
     totalDurationMinutes: totalDuration,
     steps: _coalesce(health.steps, existing.steps),
     sleepMinutes: _coalesce(health.sleepMinutes, existing.sleepMinutes),
+    sleepStartAt: _coalesce(health.sleepStartAt, existing.sleepStartAt),
+    sleepEndAt: _coalesce(health.sleepEndAt, existing.sleepEndAt),
     heartRateAvg: _coalesce(health.heartRateAvg, existing.heartRateAvg),
     restingHeartRate: _coalesce(health.restingHeartRate, existing.restingHeartRate),
     fatigue: fatigue,
@@ -652,7 +662,7 @@ function _dailySummaryHeaders() {
     'date','weekday','shiftType','workStart','workEnd','availableMinutes',
     'judgmentResult','judgmentScore','judgmentReason',
     'didWorkout','workoutType','totalDurationMinutes',
-    'steps','sleepMinutes','heartRateAvg','restingHeartRate',
+    'steps','sleepMinutes','sleepStartAt','sleepEndAt','heartRateAvg','restingHeartRate',
     'fatigue','muscleSoreness','sorenessAreas','motivation','mood',
     'skipReason','memo','healthSource','lastHealthFetchAt','lastSyncedAt',
     'sourceDevice','updatedBy','updatedAt','revision'
@@ -674,6 +684,7 @@ function _saveDailySummary(d, clientRevision) {
     d.judgmentResult != null ? d.judgmentResult : '', d.judgmentScore != null ? d.judgmentScore : '', d.judgmentReason||'',
     d.didWorkout||'', d.workoutType||'', d.totalDurationMinutes != null ? d.totalDurationMinutes : '',
     d.steps != null ? d.steps : '', d.sleepMinutes != null ? d.sleepMinutes : '',
+    d.sleepStartAt || '', d.sleepEndAt || '',
     d.heartRateAvg != null ? d.heartRateAvg : '', d.restingHeartRate != null ? d.restingHeartRate : '',
     d.fatigue != null ? d.fatigue : '', d.muscleSoreness != null ? d.muscleSoreness : '', d.sorenessAreas||'',
     d.motivation != null ? d.motivation : '', d.mood != null ? d.mood : '', d.skipReason||'', d.memo||'',
@@ -688,7 +699,7 @@ function _saveDailySummary(d, clientRevision) {
 function _appendWorkoutDetails(d) {
   var sheet = _sheetWithHeaders('workout_details', [
     'date','workoutType','exerciseName','setIndex','weightKg','reps',
-    'setCount','completed','targetWeightKg','targetReps','note',
+    'setCount','completed','targetWeightKg','targetReps','speedKmh','durationMin','note',
     'sourceDevice','updatedBy','updatedAt','revision'
   ]);
   
@@ -705,6 +716,7 @@ function _appendWorkoutDetails(d) {
       sheet.appendRow([
         d.date, d.workoutType||'', ex.name||'', 1, 0, 0,
         1, sets[0] && sets[0].completed ? 'yes' : 'no', 0, 0,
+        cardioSpeed, cardioMinutes,
         cardioSpeed + 'km/h × ' + cardioMinutes + '分',
         d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
       ]);
@@ -716,6 +728,7 @@ function _appendWorkoutDetails(d) {
           s.weight||0, s.reps||0, sets.length,
           s.completed ? 'yes' : 'no',
           ex.recommended ? (ex.recommended.weight||'') : '', ex.recommended ? (ex.recommended.reps||'') : '',
+          '', '',
           ex.recommended ? (ex.recommended.note||'') : '', d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
         ]);
       }
@@ -727,7 +740,7 @@ function _appendWorkoutDetails(d) {
 // ============ health_daily ============
 function _saveHealthDaily(d, clientRevision) {
   var sheet = _sheetWithHeaders('health_daily', [
-    'date','steps','sleepMinutes','heartRateAvg','restingHeartRate',
+    'date','steps','sleepMinutes','sleepStartAt','sleepEndAt','heartRateAvg','restingHeartRate',
     'weightKg','source','fetchedAt','syncedAt','status',
     'sourceDevice','updatedBy','updatedAt','revision'
   ]);
@@ -735,6 +748,8 @@ function _saveHealthDaily(d, clientRevision) {
     d.date,
     d.steps != null ? d.steps : '',
     d.sleepMinutes != null ? d.sleepMinutes : '',
+    d.sleepStartAt || '',
+    d.sleepEndAt || '',
     d.heartRateAvg != null ? d.heartRateAvg : '',
     d.restingHeartRate != null ? d.restingHeartRate : '',
     d.weightKg != null ? d.weightKg : '',
@@ -900,6 +915,8 @@ function _getAll() {
       // null/0の区別: 空セル=null（含めない）、0=ゼロ（含める）
       if (obj.steps !== '' && obj.steps !== null && obj.steps !== undefined) healthObj.steps = Number(obj.steps);
       if (obj.sleepMinutes !== '' && obj.sleepMinutes !== null && obj.sleepMinutes !== undefined) healthObj.sleepMinutes = Number(obj.sleepMinutes);
+      if (obj.sleepStartAt !== '' && obj.sleepStartAt !== null && obj.sleepStartAt !== undefined) healthObj.sleepStartAt = obj.sleepStartAt;
+      if (obj.sleepEndAt !== '' && obj.sleepEndAt !== null && obj.sleepEndAt !== undefined) healthObj.sleepEndAt = obj.sleepEndAt;
       if (obj.heartRateAvg !== '' && obj.heartRateAvg !== null && obj.heartRateAvg !== undefined) healthObj.heartRateAvg = Number(obj.heartRateAvg);
       if (obj.restingHeartRate !== '' && obj.restingHeartRate !== null && obj.restingHeartRate !== undefined) healthObj.restingHeartRate = Number(obj.restingHeartRate);
       byDate[d].health = healthObj;
@@ -1029,10 +1046,12 @@ function _getAll() {
       var reps = _numberOrNull(detail.reps);
       var targetWeight = _numberOrNull(detail.targetWeightKg);
       var targetReps = _numberOrNull(detail.targetReps);
+      var speedKmh = _numberOrNull(detail.speedKmh);
+      var durationMin = _numberOrNull(detail.durationMin);
       var note = detail.note || '';
       var isCardio = _looksLikeDurationNote(note) || (weight === 0 && reps === 0 && Number(detail.setCount) === 1);
-      var cardioDuration = isCardio ? (_extractMinutes(note) || (reps != null && reps > 0 ? reps : 0)) : 0;
-      var cardioSpeed = isCardio ? (_extractSpeed(note) || (weight != null && weight > 0 ? weight : 5)) : 0;
+      var cardioDuration = isCardio ? (durationMin || _extractMinutes(note) || (reps != null && reps > 0 ? reps : 0)) : 0;
+      var cardioSpeed = isCardio ? (speedKmh || _extractSpeed(note) || (weight != null && weight > 0 ? weight : 5)) : 0;
       var current = currentByDate[wd];
       var shouldStartExercise = !current
         || current.name !== exerciseName

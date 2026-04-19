@@ -200,6 +200,8 @@
         // ヘルスデータのフィールドレベルギャップ検出
         const hasHealthFieldGap = localData && localData.health && remoteData.health && (
           (remoteData.health.sleepMinutes != null && localData.health.sleepMinutes == null) ||
+          (remoteData.health.sleepStartAt != null && localData.health.sleepStartAt == null) ||
+          (remoteData.health.sleepEndAt != null && localData.health.sleepEndAt == null) ||
           (remoteData.health.steps != null && localData.health.steps == null) ||
           (remoteData.health.heartRateAvg != null && localData.health.heartRateAvg == null) ||
           (remoteData.health.restingHeartRate != null && localData.health.restingHeartRate == null)
