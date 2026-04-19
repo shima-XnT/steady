@@ -259,8 +259,52 @@
     const end = formatClockFromIso(health?.sleepEndAt);
     return start && end ? `${start}-${end}` : '';
   }
+  function normalizeNapSessions(health) {
+    if (!health) return [];
+    let sessions = health.napSessions;
+    if (typeof sessions === 'string' && sessions.trim()) {
+      try {
+        sessions = JSON.parse(sessions);
+      } catch (error) {
+        sessions = null;
+      }
+    }
+    if (Array.isArray(sessions) && sessions.length > 0) {
+      return sessions.filter(Boolean);
+    }
+    if (health.napMinutes != null) {
+      return [{
+        minutes: health.napMinutes,
+        startAt: health.napStartAt,
+        endAt: health.napEndAt
+      }];
+    }
+    return [];
+  }
+  function formatNapWindow(health) {
+    const sessions = normalizeNapSessions(health);
+    if (sessions.length === 0) return '';
+    return sessions.map(session => {
+      const minutes = session.minutes ?? session.durationMinutes ?? session.napMinutes;
+      const start = formatClockFromIso(session.startAt ?? session.napStartAt);
+      const end = formatClockFromIso(session.endAt ?? session.napEndAt);
+      const duration = App.Utils.formatSleep(minutes) || (minutes != null ? `${minutes}分` : '');
+      return start && end ? `${duration} ${start}-${end}` : duration;
+    }).filter(Boolean).join(' / ');
+  }
+  function formatSleepDetail(health, fallback = '') {
+    const parts = [];
+    const sleepWindow = formatSleepWindow(health);
+    const napWindow = formatNapWindow(health);
+    if (sleepWindow) parts.push(sleepWindow);
+    if (napWindow) parts.push(`仮眠 ${napWindow}`);
+    return parts.join(' / ') || fallback;
+  }
   App.Utils.formatClockFromIso = App.Utils.formatClockFromIso || formatClockFromIso;
   App.Utils.formatSleepWindow = App.Utils.formatSleepWindow || formatSleepWindow;
+  App.Utils.formatNapWindow = App.Utils.formatNapWindow || formatNapWindow;
+  App.Utils.normalizeNapSessions = App.Utils.normalizeNapSessions || normalizeNapSessions;
+  App.Utils.formatSleepDetail = App.Utils.formatSleepDetail || formatSleepDetail;
 
   function countExerciseDone(exercise) {
     return (exercise.sets || []).filter(set => set.completed).length;
@@ -986,7 +1030,7 @@
                   <div class="reboot-stat-row">
                     <span>睡眠</span>
                     <strong>${h(App.Utils.formatSleep(health?.sleepMinutes) || '未取得')}</strong>
-                    <small>${h(App.Utils.formatSleepWindow?.(health) || '時刻は未取得')}</small>
+                    <small>${h(App.Utils.formatSleepDetail?.(health, '時刻は未取得') || '時刻は未取得')}</small>
                   </div>
                   <div class="reboot-stat-row">
                     <span>歩数</span>
@@ -3081,7 +3125,7 @@
         <div class="reboot-list-card">
           <div>
             <strong>${h(App.Utils.formatDate(record.date))}</strong>
-            <span>睡眠 ${h(App.Utils.formatSleep(record.sleepMinutes) || '—')}${App.Utils.formatSleepWindow?.(record) ? ` (${h(App.Utils.formatSleepWindow(record))})` : ''} / 歩数 ${record.steps != null ? h(record.steps.toLocaleString()) : '—'}</span>
+            <span>睡眠 ${h(App.Utils.formatSleep(record.sleepMinutes) || '—')}${App.Utils.formatSleepDetail?.(record) ? ` (${h(App.Utils.formatSleepDetail(record))})` : ''} / 歩数 ${record.steps != null ? h(record.steps.toLocaleString()) : '—'}</span>
           </div>
           <div class="reboot-list-aside">
             <span>平均心拍 ${record.heartRateAvg != null ? `${h(record.heartRateAvg)} bpm` : '—'}</span>
@@ -3243,7 +3287,7 @@
                   <article class="reboot-stat-card">
                     <span>睡眠</span>
                     <strong>${h(App.Utils.formatSleep(health?.sleepMinutes) || '未取得')}</strong>
-                    <small>${h(App.Utils.formatSleepWindow?.(health) || (sleepAvg != null ? `平均 ${sleepAvg.toFixed(1)}h` : '—'))}</small>
+                    <small>${h(App.Utils.formatSleepDetail?.(health, sleepAvg != null ? `平均 ${sleepAvg.toFixed(1)}h` : '—') || '—')}</small>
                   </article>
                   <article class="reboot-stat-card">
                     <span>平均心拍</span>

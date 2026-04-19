@@ -13,6 +13,7 @@ import com.steady.wrapper.health.HealthConnectManager
 import com.steady.wrapper.health.PermissionHelper
 import com.steady.wrapper.repository.HealthRepository
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -88,7 +89,7 @@ class MainActivity : AppCompatActivity() {
                     appendLine("🛌 就寝: ${entity.sleepStartAt?.take(16)?.replace('T', ' ') ?: "—"}")
                     appendLine("☀️ 起床: ${entity.sleepEndAt?.take(16)?.replace('T', ' ') ?: "—"}")
                     appendLine("💤 仮眠: ${entity.napMinutes?.let { "${it}分 (${it/60}h${it%60}m)" } ?: "—"}")
-                    appendLine("仮眠時間: ${entity.napStartAt?.take(16)?.replace('T', ' ') ?: "—"} - ${entity.napEndAt?.take(16)?.replace('T', ' ') ?: "—"}")
+                    appendLine("仮眠詳細: ${formatNapSessions(entity.napSessions, entity.napStartAt, entity.napEndAt)}")
             appendLine("💓 心拍: ${entity.heartRateAvg ?: "—"} bpm")
                     appendLine("🫀 安静時: ${entity.restingHeartRate ?: "—"} bpm")
                     appendLine("")
@@ -151,5 +152,36 @@ class MainActivity : AppCompatActivity() {
                     Log.d(TAG, "Worker state: $stateStr")
                 }
             }
+    }
+
+    private fun formatNapSessions(raw: String?, fallbackStart: String?, fallbackEnd: String?): String {
+        if (!raw.isNullOrBlank()) {
+            try {
+                val array = JSONArray(raw)
+                val parts = mutableListOf<String>()
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    val minutes = item.optLong("minutes", 0)
+                    val start = shortTime(item.optString("startAt", ""))
+                    val end = shortTime(item.optString("endAt", ""))
+                    val duration = if (minutes > 0) "${minutes}分" else ""
+                    val window = if (start.isNotBlank() && end.isNotBlank()) "$start-$end" else ""
+                    listOf(duration, window).filter { it.isNotBlank() }.joinToString(" ").takeIf { it.isNotBlank() }?.let {
+                        parts.add(it)
+                    }
+                }
+                if (parts.isNotEmpty()) return parts.joinToString(" / ")
+            } catch (_: Exception) {
+                // Fall back to aggregate nap window below.
+            }
+        }
+        val start = shortTime(fallbackStart)
+        val end = shortTime(fallbackEnd)
+        return if (start.isNotBlank() && end.isNotBlank()) "$start-$end" else "—"
+    }
+
+    private fun shortTime(value: String?): String {
+        if (value.isNullOrBlank()) return ""
+        return value.take(16).replace('T', ' ').takeLast(5)
     }
 }

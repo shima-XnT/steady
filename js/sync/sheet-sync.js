@@ -202,6 +202,10 @@
           (remoteData.health.sleepMinutes != null && localData.health.sleepMinutes == null) ||
           (remoteData.health.sleepStartAt != null && localData.health.sleepStartAt == null) ||
           (remoteData.health.sleepEndAt != null && localData.health.sleepEndAt == null) ||
+          (remoteData.health.napMinutes != null && localData.health.napMinutes == null) ||
+          (remoteData.health.napStartAt != null && localData.health.napStartAt == null) ||
+          (remoteData.health.napEndAt != null && localData.health.napEndAt == null) ||
+          (remoteData.health.napSessions != null && localData.health.napSessions == null) ||
           (remoteData.health.steps != null && localData.health.steps == null) ||
           (remoteData.health.heartRateAvg != null && localData.health.heartRateAvg == null) ||
           (remoteData.health.restingHeartRate != null && localData.health.restingHeartRate == null)

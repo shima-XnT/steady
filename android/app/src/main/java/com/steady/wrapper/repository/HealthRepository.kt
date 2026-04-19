@@ -4,6 +4,9 @@ import android.util.Log
 import com.steady.wrapper.data.HealthDailyDao
 import com.steady.wrapper.data.HealthDailyEntity
 import com.steady.wrapper.health.HealthConnectManager
+import com.steady.wrapper.health.NapSummary
+import org.json.JSONArray
+import org.json.JSONObject
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -28,6 +31,7 @@ class HealthRepository(
             val sleepSummary = healthConnectManager.getSleepSummary(dateStr)
             val sleep = sleepSummary?.minutes
             val nap = sleepSummary?.napMinutes
+            val napSessions = encodeNapSessions(sleepSummary?.napSessions.orEmpty())
             val heartRate = healthConnectManager.getAverageHeartRate(dateStr)
             val restingHr = healthConnectManager.getRestingHeartRate(dateStr)
 
@@ -46,6 +50,7 @@ class HealthRepository(
                 napMinutes = nap,
                 napStartAt = sleepSummary?.napStartAt,
                 napEndAt = sleepSummary?.napEndAt,
+                napSessions = napSessions,
                 heartRateAvg = heartRate,
                 restingHeartRate = restingHr,
                 source = "health_connect",
@@ -64,7 +69,7 @@ class HealthRepository(
                     HealthDailyEntity(
                         date = dateStr,
                         steps = null, sleepMinutes = null, sleepStartAt = null, sleepEndAt = null,
-                        napMinutes = null, napStartAt = null, napEndAt = null,
+                        napMinutes = null, napStartAt = null, napEndAt = null, napSessions = null,
                         heartRateAvg = null, restingHeartRate = null,
                         source = "health_connect",
                         syncedAt = ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
@@ -78,5 +83,18 @@ class HealthRepository(
 
     suspend fun getHealthData(dateStr: String): HealthDailyEntity? {
         return dao.getByDate(dateStr)
+    }
+
+    private fun encodeNapSessions(sessions: List<NapSummary>): String? {
+        if (sessions.isEmpty()) return null
+        val array = JSONArray()
+        sessions.forEach { session ->
+            array.put(JSONObject().apply {
+                put("minutes", session.minutes)
+                put("startAt", session.startAt)
+                put("endAt", session.endAt)
+            })
+        }
+        return array.toString()
     }
 }

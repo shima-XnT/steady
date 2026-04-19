@@ -10,6 +10,7 @@ import com.steady.wrapper.health.HealthConnectManager
 import com.steady.wrapper.repository.HealthRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -62,6 +63,7 @@ class HealthSyncWorker(
             val success = postToGas(entity.date, entity.steps, entity.sleepMinutes,
                 entity.sleepStartAt, entity.sleepEndAt,
                 entity.napMinutes, entity.napStartAt, entity.napEndAt,
+                entity.napSessions,
                 entity.heartRateAvg, entity.restingHeartRate)
             if (success) {
                 Log.d(TAG, "Successfully synced to GAS for $today")
@@ -88,6 +90,7 @@ class HealthSyncWorker(
         napMinutes: Long?,
         napStartAt: String?,
         napEndAt: String?,
+        napSessions: String?,
         heartRateAvg: Long?,
         restingHeartRate: Long?
     ): Boolean = withContext(Dispatchers.IO) {
@@ -101,6 +104,7 @@ class HealthSyncWorker(
             if (napMinutes != null) put("napMinutes", napMinutes)
             if (napStartAt != null) put("napStartAt", napStartAt)
             if (napEndAt != null) put("napEndAt", napEndAt)
+            if (!napSessions.isNullOrBlank()) put("napSessions", JSONArray(napSessions))
             if (heartRateAvg != null) put("heartRateAvg", heartRateAvg)
             if (restingHeartRate != null) put("restingHeartRate", restingHeartRate)
             put("source", "health_connect")

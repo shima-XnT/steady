@@ -192,6 +192,10 @@ function _handleLegacyPost(data) {
       sleepMinutes: data.health.sleepMinutes,
       sleepStartAt: data.health.sleepStartAt,
       sleepEndAt: data.health.sleepEndAt,
+      napMinutes: data.health.napMinutes,
+      napStartAt: data.health.napStartAt,
+      napEndAt: data.health.napEndAt,
+      napSessions: data.health.napSessions,
       heartRateAvg: data.health.heartRateAvg,
       restingHeartRate: data.health.restingHeartRate,
       weightKg: data.health.weightKg,
@@ -635,6 +639,10 @@ function _rebuildDailySummary(dateStr, src, by, updatedAt, condJudgPatch, client
     sleepMinutes: _coalesce(health.sleepMinutes, existing.sleepMinutes),
     sleepStartAt: _coalesce(health.sleepStartAt, existing.sleepStartAt),
     sleepEndAt: _coalesce(health.sleepEndAt, existing.sleepEndAt),
+    napMinutes: _coalesce(health.napMinutes, existing.napMinutes),
+    napStartAt: _coalesce(health.napStartAt, existing.napStartAt),
+    napEndAt: _coalesce(health.napEndAt, existing.napEndAt),
+    napSessions: _coalesce(health.napSessions, existing.napSessions),
     heartRateAvg: _coalesce(health.heartRateAvg, existing.heartRateAvg),
     restingHeartRate: _coalesce(health.restingHeartRate, existing.restingHeartRate),
     fatigue: fatigue,
@@ -678,13 +686,29 @@ function _coalesce() {
   return null;
 }
 
+function _jsonCell(value) {
+  if (value == null || value === '') return '';
+  if (Array.isArray(value) || typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+function _parseJsonCell(value) {
+  if (value == null || value === '') return null;
+  if (Array.isArray(value) || typeof value === 'object') return value;
+  try {
+    return JSON.parse(String(value));
+  } catch (e) {
+    return value;
+  }
+}
+
 // ============ daily_summary ============
 function _dailySummaryHeaders() {
   return [
     'date','weekday','shiftType','workStart','workEnd','destination','hotelName','availableMinutes',
     'judgmentResult','judgmentScore','judgmentReason',
     'didWorkout','workoutType','totalDurationMinutes',
-    'steps','sleepMinutes','sleepStartAt','sleepEndAt','heartRateAvg','restingHeartRate',
+    'steps','sleepMinutes','sleepStartAt','sleepEndAt','napMinutes','napStartAt','napEndAt','napSessions','heartRateAvg','restingHeartRate',
     'fatigue','muscleSoreness','sorenessAreas','motivation','mood',
     'skipReason','memo','healthSource','lastHealthFetchAt','lastSyncedAt',
     'sourceDevice','updatedBy','updatedAt','revision'
@@ -707,6 +731,7 @@ function _saveDailySummary(d, clientRevision) {
     d.didWorkout||'', d.workoutType||'', d.totalDurationMinutes != null ? d.totalDurationMinutes : '',
     d.steps != null ? d.steps : '', d.sleepMinutes != null ? d.sleepMinutes : '',
     d.sleepStartAt || '', d.sleepEndAt || '',
+    d.napMinutes != null ? d.napMinutes : '', d.napStartAt || '', d.napEndAt || '', _jsonCell(d.napSessions),
     d.heartRateAvg != null ? d.heartRateAvg : '', d.restingHeartRate != null ? d.restingHeartRate : '',
     d.fatigue != null ? d.fatigue : '', d.muscleSoreness != null ? d.muscleSoreness : '', d.sorenessAreas||'',
     d.motivation != null ? d.motivation : '', d.mood != null ? d.mood : '', d.skipReason||'', d.memo||'',
@@ -762,7 +787,7 @@ function _appendWorkoutDetails(d) {
 // ============ health_daily ============
 function _saveHealthDaily(d, clientRevision) {
   var sheet = _sheetWithHeaders('health_daily', [
-    'date','steps','sleepMinutes','sleepStartAt','sleepEndAt','heartRateAvg','restingHeartRate',
+    'date','steps','sleepMinutes','sleepStartAt','sleepEndAt','napMinutes','napStartAt','napEndAt','napSessions','heartRateAvg','restingHeartRate',
     'weightKg','source','fetchedAt','syncedAt','status',
     'sourceDevice','updatedBy','updatedAt','revision'
   ]);
@@ -772,6 +797,10 @@ function _saveHealthDaily(d, clientRevision) {
     d.sleepMinutes != null ? d.sleepMinutes : '',
     d.sleepStartAt || '',
     d.sleepEndAt || '',
+    d.napMinutes != null ? d.napMinutes : '',
+    d.napStartAt || '',
+    d.napEndAt || '',
+    _jsonCell(d.napSessions),
     d.heartRateAvg != null ? d.heartRateAvg : '',
     d.restingHeartRate != null ? d.restingHeartRate : '',
     d.weightKg != null ? d.weightKg : '',
@@ -942,6 +971,10 @@ function _getAll() {
       if (obj.sleepMinutes !== '' && obj.sleepMinutes !== null && obj.sleepMinutes !== undefined) healthObj.sleepMinutes = Number(obj.sleepMinutes);
       if (obj.sleepStartAt !== '' && obj.sleepStartAt !== null && obj.sleepStartAt !== undefined) healthObj.sleepStartAt = obj.sleepStartAt;
       if (obj.sleepEndAt !== '' && obj.sleepEndAt !== null && obj.sleepEndAt !== undefined) healthObj.sleepEndAt = obj.sleepEndAt;
+      if (obj.napMinutes !== '' && obj.napMinutes !== null && obj.napMinutes !== undefined) healthObj.napMinutes = Number(obj.napMinutes);
+      if (obj.napStartAt !== '' && obj.napStartAt !== null && obj.napStartAt !== undefined) healthObj.napStartAt = obj.napStartAt;
+      if (obj.napEndAt !== '' && obj.napEndAt !== null && obj.napEndAt !== undefined) healthObj.napEndAt = obj.napEndAt;
+      if (obj.napSessions !== '' && obj.napSessions !== null && obj.napSessions !== undefined) healthObj.napSessions = _parseJsonCell(obj.napSessions);
       if (obj.heartRateAvg !== '' && obj.heartRateAvg !== null && obj.heartRateAvg !== undefined) healthObj.heartRateAvg = Number(obj.heartRateAvg);
       if (obj.restingHeartRate !== '' && obj.restingHeartRate !== null && obj.restingHeartRate !== undefined) healthObj.restingHeartRate = Number(obj.restingHeartRate);
       byDate[d].health = healthObj;

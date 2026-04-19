@@ -28,6 +28,7 @@
       const provider = App.healthProvider;
       const source = health?.source === 'health_connect' ? 'health_connect' : (health?.source || '未取得');
       const visibleRecent = this._historyExpanded ? recent : recent.slice(0, 5);
+      const sleepDetail = App.Utils.formatSleepDetail?.(health) || App.Utils.formatSleepWindow?.(health) || '';
 
       return `
         <div class="container animate-in">
@@ -60,7 +61,7 @@
             <h3 class="mb-12">今日の値</h3>
             <div class="grid-2">
               ${this._statCard('歩数', health?.steps != null ? `${Number(health.steps).toLocaleString()} 歩` : '未取得')}
-              ${this._statCard('睡眠', App.Utils.formatSleep(health?.sleepMinutes) || '未取得', App.Utils.formatSleepWindow?.(health) || '')}
+              ${this._statCard('睡眠', App.Utils.formatSleep(health?.sleepMinutes) || '未取得', sleepDetail)}
               ${this._statCard('平均心拍', health?.heartRateAvg != null ? `${health.heartRateAvg} bpm` : '未取得')}
               ${this._statCard('安静時心拍', health?.restingHeartRate != null ? `${health.restingHeartRate} bpm` : '未取得')}
             </div>
@@ -111,7 +112,7 @@
           ${records.sort((a, b) => b.date.localeCompare(a.date)).map(record => `
             <div class="reboot-link-card">
               <strong>${h(App.Utils.formatDateShort(record.date))}</strong>
-              <span>${record.steps != null ? `${Number(record.steps).toLocaleString()}歩` : '歩数なし'} / ${App.Utils.formatSleep(record.sleepMinutes) || '睡眠なし'}</span>
+              <span>${record.steps != null ? `${Number(record.steps).toLocaleString()}歩` : '歩数なし'} / ${App.Utils.formatSleep(record.sleepMinutes) || '睡眠なし'}${App.Utils.formatSleepDetail?.(record) ? ` (${h(App.Utils.formatSleepDetail(record))})` : ''}</span>
               <small>平均心拍 ${record.heartRateAvg != null ? `${h(record.heartRateAvg)} bpm` : '—'} / 安静時 ${record.restingHeartRate != null ? `${h(record.restingHeartRate)} bpm` : '—'}</small>
             </div>
           `).join('')}

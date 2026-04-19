@@ -13,6 +13,7 @@ data class HealthDailyEntity(
     val napMinutes: Long? = null,
     val napStartAt: String? = null,
     val napEndAt: String? = null,
+    val napSessions: String? = null,
     val heartRateAvg: Long?,
     val restingHeartRate: Long?,
     val source: String = "health_connect",

@@ -18,12 +18,19 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 data class SleepSummary(
-    val minutes: Long,
+    val minutes: Long?,
     val startAt: String?,
     val endAt: String?,
     val napMinutes: Long? = null,
     val napStartAt: String? = null,
-    val napEndAt: String? = null
+    val napEndAt: String? = null,
+    val napSessions: List<NapSummary> = emptyList()
+)
+
+data class NapSummary(
+    val minutes: Long,
+    val startAt: String?,
+    val endAt: String?
 )
 
 private data class SleepCandidate(
@@ -105,9 +112,9 @@ class HealthConnectManager(private val context: Context) {
                  .mapNotNull { buildSleepCandidate(it, date, zone) }
                  .sortedByDescending { it.score }
 
-             val primary = candidates.firstOrNull() ?: return null
-             val grouped = groupAdjacentNightSleep(primary, candidates)
-             val totalMinutes = grouped.sumOf { it.minutes }
+             val primary = candidates.firstOrNull { isMainSleepCandidate(it, date) }
+             val grouped = if (primary != null) groupAdjacentNightSleep(primary, candidates) else emptyList()
+             val totalMinutes = grouped.takeIf { it.isNotEmpty() }?.sumOf { it.minutes }
              val sleepStart = grouped.minOfOrNull { it.record.startTime }
              val sleepEnd = grouped.maxOfOrNull { it.record.endTime }
              val naps = candidates
@@ -116,6 +123,15 @@ class HealthConnectManager(private val context: Context) {
              val napMinutes = naps.takeIf { it.isNotEmpty() }?.sumOf { it.minutes }
              val napStart = naps.minOfOrNull { it.record.startTime }
              val napEnd = naps.maxOfOrNull { it.record.endTime }
+             val napSessions = naps.map { nap ->
+                 NapSummary(
+                     minutes = nap.minutes,
+                     startAt = nap.record.startTime.atZone(zone).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                     endAt = nap.record.endTime.atZone(zone).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                 )
+             }
+
+             if (totalMinutes == null && napMinutes == null) return null
 
              return SleepSummary(
                  minutes = totalMinutes,
@@ -123,7 +139,8 @@ class HealthConnectManager(private val context: Context) {
                  endAt = sleepEnd?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
                  napMinutes = napMinutes,
                  napStartAt = napStart?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-                 napEndAt = napEnd?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                 napEndAt = napEnd?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                 napSessions = napSessions
              )
          } catch (e: Exception) {
              Log.e(TAG, "Error reading sleep: \${e.message}")
@@ -171,6 +188,23 @@ class HealthConnectManager(private val context: Context) {
         if (daytimeNap) score -= 7000
 
         return SleepCandidate(record, minutes, startLocal, endLocal, score)
+    }
+
+    private fun isMainSleepCandidate(candidate: SleepCandidate, targetDate: LocalDate): Boolean {
+        if (candidate.minutes < 180) return false
+
+        val startDate = candidate.startLocal.toLocalDate()
+        val endDate = candidate.endLocal.toLocalDate()
+        val startTime = candidate.startLocal.toLocalTime()
+        val endTime = candidate.endLocal.toLocalTime()
+        val spansNight = startDate != endDate && (startDate == targetDate || endDate == targetDate)
+        val wakesOnTargetMorning =
+            endDate == targetDate &&
+                isTimeBetween(endTime, LocalTime.of(3, 0), LocalTime.of(14, 0)) &&
+                (spansNight || startTime.isBefore(LocalTime.of(9, 0)) || !startTime.isBefore(LocalTime.of(18, 0)))
+        val startsOnTargetNight = startDate == targetDate && !startTime.isBefore(LocalTime.of(18, 0))
+
+        return wakesOnTargetMorning || startsOnTargetNight || spansNight
     }
 
     private fun isNapCandidate(candidate: SleepCandidate, targetDate: LocalDate): Boolean {
