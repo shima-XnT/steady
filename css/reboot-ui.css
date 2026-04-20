@@ -1432,6 +1432,23 @@ body {
     display: block;
   }
 
+  .reboot-schedule-shell .reboot-panel {
+    overflow-x: auto;
+  }
+
+  .reboot-schedule-shell .reboot-calendar-weekdays,
+  .reboot-schedule-shell .reboot-calendar-grid {
+    min-width: 560px;
+  }
+
+  .reboot-day-type,
+  .reboot-day-cell small {
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .reboot-stat-card span,
   .reboot-mini-stat span {
     font-size: 0.72rem;
