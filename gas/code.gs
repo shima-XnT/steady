@@ -403,45 +403,192 @@ function _computeAvailableMinutes(shiftType, endTime) {
   if (shiftType === 'off' || shiftType === 'paid_leave') return 960;
   if (!endTime) return '';
   try {
-    var parts = String(endTime).split(':').map(Number);
-    if (isNaN(parts[0]) || isNaN(parts[1])) return '';
-    return Math.max(0, (23 * 60) - (parts[0] * 60 + parts[1]));
+    var endMinutes = _timeToMinutes(endTime);
+    if (endMinutes == null) return '';
+    return Math.max(0, (23 * 60) - endMinutes);
   } catch(e) { return ''; }
 }
 
+function _timeToMinutes(value) {
+  var time = _normTime(value);
+  if (!time) return null;
+  var parts = String(time).split(':').map(Number);
+  if (parts.length < 2 || isNaN(parts[0]) || isNaN(parts[1])) return null;
+  if (parts[0] < 0 || parts[0] > 23 || parts[1] < 0 || parts[1] > 59) return null;
+  return parts[0] * 60 + parts[1];
+}
+
+function _computeWorkMinutes(startTime, endTime) {
+  var start = _timeToMinutes(startTime);
+  var end = _timeToMinutes(endTime);
+  if (start == null || end == null) return '';
+  var minutes = end - start;
+  if (minutes < 0) minutes += 24 * 60;
+  return Math.max(0, minutes);
+}
+
+function _roundTo(value, digits) {
+  var n = Number(value);
+  if (isNaN(n)) return '';
+  var scale = Math.pow(10, digits || 0);
+  return Math.round(n * scale) / scale;
+}
+
+function _clampNumber(value, min, max) {
+  var n = Number(value);
+  if (isNaN(n)) return '';
+  return Math.max(min, Math.min(max, n));
+}
+
+function _minutesToHours(minutes) {
+  var n = _numberOrNull(minutes);
+  if (n == null) return '';
+  return _roundTo(n / 60, 1);
+}
+
+function _estimateWorkloadScore(shiftType, workMinutes, steps) {
+  if (!shiftType) return '';
+  if (shiftType === 'off' || shiftType === 'paid_leave') return 10;
+  var score = 50;
+  if (shiftType === 'project') score = 70;
+  if (shiftType === 'business_trip') score = 80;
+  var work = _numberOrNull(workMinutes);
+  if (work != null) {
+    if (work > 480) score += Math.min(18, Math.floor((work - 480) / 30) * 3);
+    if (work < 360) score -= 5;
+  }
+  var stepCount = _numberOrNull(steps);
+  if (stepCount != null) {
+    if (stepCount >= 12000) score += 10;
+    else if (stepCount >= 8000) score += 5;
+    else if (stepCount < 3000) score -= 5;
+  }
+  return _clampNumber(Math.round(score), 0, 100);
+}
+
+function _conditionLevel(value) {
+  var n = _numberOrNull(value);
+  if (n == null) return null;
+  return _clampNumber(n, 1, 5);
+}
+
+function _estimateRecoveryScore(sleepMinutes, napMinutes, fatigue, muscleSoreness, restingHeartRate) {
+  var hasSignal = false;
+  var score = 70;
+  var sleep = _numberOrNull(sleepMinutes);
+  if (sleep != null) {
+    hasSignal = true;
+    if (sleep >= 420) score += 20;
+    else if (sleep >= 360) score += 10;
+    else if (sleep >= 300) score += 0;
+    else score -= 20;
+  }
+  var nap = _numberOrNull(napMinutes);
+  if (nap != null && nap > 0) {
+    hasSignal = true;
+    score += Math.min(8, Math.floor(nap / 15));
+  }
+  var fatigueLevel = _conditionLevel(fatigue);
+  if (fatigueLevel != null) {
+    hasSignal = true;
+    score += fatigueLevel <= 2 ? 5 : 0;
+    score -= Math.max(0, fatigueLevel - 3) * 10;
+  }
+  var sorenessLevel = _conditionLevel(muscleSoreness);
+  if (sorenessLevel != null) {
+    hasSignal = true;
+    score -= Math.max(0, sorenessLevel - 3) * 8;
+  }
+  var rhr = _numberOrNull(restingHeartRate);
+  if (rhr != null && rhr > 0) {
+    hasSignal = true;
+    if (rhr >= 85) score -= 12;
+    else if (rhr >= 75) score -= 6;
+    else if (rhr <= 60) score += 4;
+  }
+  return hasSignal ? _clampNumber(Math.round(score), 0, 100) : '';
+}
+
 /**
- * workout_details シートからワークアウト合計時間(分)を算出
- * - 有酸素(note欄に '○分' がある): そのまま加算
- * - 筋トレ: セット数 × 1.5分 (推定)
+ * workout_details シートから日別の運動派生値を算出する。
+ * フロントは実績だけを送り、合計時間・完了率などはGAS側で再計算する。
  */
-function _computeWorkoutDuration(dateStr) {
+function _computeWorkoutMetrics(dateStr) {
+  var empty = {
+    totalDurationMinutes: '',
+    cardioMinutes: '',
+    strengthSetCount: '',
+    completedSetCount: '',
+    totalSetCount: '',
+    completedExerciseCount: '',
+    totalExerciseCount: '',
+    completionRate: ''
+  };
   var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('workout_details');
-  if (!sheet || sheet.getLastRow() <= 1) return '';
+  if (!sheet || sheet.getLastRow() <= 1) return empty;
   var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
   var data = sheet.getRange(2, 1, sheet.getLastRow() - 1, headers.length).getValues();
   var dateIdx = headers.indexOf('date');
+  var exerciseIdx = headers.indexOf('exerciseName');
   var noteIdx = headers.indexOf('note');
   var durationIdx = headers.indexOf('durationMin');
+  var speedIdx = headers.indexOf('speedKmh');
+  var completedIdx = headers.indexOf('completed');
   var totalMin = 0;
+  var cardioMin = 0;
+  var strengthSetCount = 0;
+  var totalSetCount = 0;
+  var completedSetCount = 0;
+  var exerciseMap = {};
   var found = false;
   for (var i = 0; i < data.length; i++) {
     if (_normDate(data[i][dateIdx]) !== _normDate(dateStr)) continue;
     found = true;
+    var exerciseName = String(exerciseIdx > -1 ? (data[i][exerciseIdx] || '') : '').trim() || ('row-' + i);
     var durationCell = durationIdx > -1 ? _numberOrNull(data[i][durationIdx]) : null;
-    if (durationCell != null && durationCell > 0) {
-      totalMin += durationCell;
-      continue;
-    }
+    var speedCell = speedIdx > -1 ? _numberOrNull(data[i][speedIdx]) : null;
     var note = String(noteIdx > -1 ? (data[i][noteIdx] || '') : '');
-    // '30分' のようなパターンから分数を抽出
-    var match = note.match(/(\d+)分/);
-    if (match) {
-      totalMin += parseInt(match[1]);
+    var isCardio = (durationCell != null && durationCell > 0) || (speedCell != null && speedCell > 0) || _looksLikeDurationNote(note);
+    var isCompleted = completedIdx > -1 ? _isYes(data[i][completedIdx]) : false;
+    if (!exerciseMap[exerciseName]) exerciseMap[exerciseName] = { total: 0, completed: 0 };
+    exerciseMap[exerciseName].total++;
+    totalSetCount++;
+    if (isCompleted) {
+      exerciseMap[exerciseName].completed++;
+      completedSetCount++;
+    }
+    if (isCardio) {
+      var rowCardioMin = durationCell != null && durationCell > 0 ? durationCell : _extractMinutes(note);
+      cardioMin += rowCardioMin;
+      totalMin += rowCardioMin;
     } else {
-      totalMin += 1.5; // 筋トレ1セット≒1.5分
+      strengthSetCount++;
+      totalMin += 1.5;
     }
   }
-  return found ? Math.round(totalMin) : '';
+  if (!found) return empty;
+  var totalExerciseCount = 0;
+  var completedExerciseCount = 0;
+  Object.keys(exerciseMap).forEach(function(name) {
+    totalExerciseCount++;
+    if (exerciseMap[name].total > 0 && exerciseMap[name].completed >= exerciseMap[name].total) {
+      completedExerciseCount++;
+    }
+  });
+  return {
+    totalDurationMinutes: Math.round(totalMin),
+    cardioMinutes: Math.round(cardioMin),
+    strengthSetCount: strengthSetCount,
+    completedSetCount: completedSetCount,
+    totalSetCount: totalSetCount,
+    completedExerciseCount: completedExerciseCount,
+    totalExerciseCount: totalExerciseCount,
+    completionRate: totalSetCount > 0 ? Math.round((completedSetCount / totalSetCount) * 100) : ''
+  };
+}
+
+function _computeWorkoutDuration(dateStr) {
+  return _computeWorkoutMetrics(dateStr).totalDurationMinutes;
 }
 
 function _workoutSessionHeaders() {
@@ -594,15 +741,18 @@ function _rebuildDailySummary(dateStr, src, by, updatedAt, condJudgPatch, client
   // --- workout_sessions / workout_details からワークアウト状態を取得 ---
   var session = _readWorkoutSession(dateStr);
   var sessionPatch = _workoutSummaryPatch(session);
-  var workoutDuration = _computeWorkoutDuration(dateStr);
+  var workoutMetrics = _computeWorkoutMetrics(dateStr);
+  var workoutDuration = workoutMetrics.totalDurationMinutes;
 
   // --- condJudgPatch に含まれない列は既存のdaily_summaryから保持 ---
   var existing = _getExistingDailySummaryFields(dateStr);
 
   // --- availableMinutes ---
   var shiftType = sched.shiftType || '';
+  var startTime = _normTime(sched.startTime) || '';
   var endTime = _normTime(sched.endTime) || '';
   var availMin = _computeAvailableMinutes(shiftType, endTime);
+  var workMinutes = _computeWorkMinutes(startTime, endTime);
 
   // マージ: condJudgPatch > 既存daily_summary
   var fatigue = _coalesce(condJudgPatch.fatigue, existing.fatigue);
@@ -620,36 +770,60 @@ function _rebuildDailySummary(dateStr, src, by, updatedAt, condJudgPatch, client
 
   // durationMinutes: 実測セッション > workout_details推定 > 既存値
   var totalDuration = _coalesce(condJudgPatch.durationMinutes, sessionPatch.durationMinutes, workoutDuration || null, existing.totalDurationMinutes);
+  var steps = _coalesce(health.steps, existing.steps);
+  var sleepMinutes = _coalesce(health.sleepMinutes, existing.sleepMinutes);
+  var sleepStartAt = _coalesce(health.sleepStartAt, existing.sleepStartAt);
+  var sleepEndAt = _coalesce(health.sleepEndAt, existing.sleepEndAt);
+  var napMinutes = _coalesce(health.napMinutes, existing.napMinutes);
+  var napStartAt = _coalesce(health.napStartAt, existing.napStartAt);
+  var napEndAt = _coalesce(health.napEndAt, existing.napEndAt);
+  var napSessions = _coalesce(health.napSessions, existing.napSessions);
+  var heartRateAvg = _coalesce(health.heartRateAvg, existing.heartRateAvg);
+  var restingHeartRate = _coalesce(health.restingHeartRate, existing.restingHeartRate);
+  var workloadScore = _estimateWorkloadScore(shiftType, workMinutes, steps);
+  var recoveryScore = _estimateRecoveryScore(sleepMinutes, napMinutes, fatigue, muscleSoreness, restingHeartRate);
 
   _saveDailySummary({
     date: dateStr,
     shiftType: shiftType,
-    workStart: _normTime(sched.startTime) || '',
+    workStart: startTime,
     workEnd: endTime,
     destination: sched.destination || '',
     hotelName: sched.hotelName || '',
     availableMinutes: availMin,
+    workMinutes: workMinutes,
+    workloadScore: workloadScore,
     judgmentResult: judgmentResult,
     judgmentScore: judgmentScore,
     judgmentReason: judgmentReason,
     didWorkout: didWorkout,
     workoutType: workoutType,
     totalDurationMinutes: totalDuration,
-    steps: _coalesce(health.steps, existing.steps),
-    sleepMinutes: _coalesce(health.sleepMinutes, existing.sleepMinutes),
-    sleepStartAt: _coalesce(health.sleepStartAt, existing.sleepStartAt),
-    sleepEndAt: _coalesce(health.sleepEndAt, existing.sleepEndAt),
-    napMinutes: _coalesce(health.napMinutes, existing.napMinutes),
-    napStartAt: _coalesce(health.napStartAt, existing.napStartAt),
-    napEndAt: _coalesce(health.napEndAt, existing.napEndAt),
-    napSessions: _coalesce(health.napSessions, existing.napSessions),
-    heartRateAvg: _coalesce(health.heartRateAvg, existing.heartRateAvg),
-    restingHeartRate: _coalesce(health.restingHeartRate, existing.restingHeartRate),
+    cardioMinutes: workoutMetrics.cardioMinutes,
+    strengthSetCount: workoutMetrics.strengthSetCount,
+    completedSetCount: workoutMetrics.completedSetCount,
+    totalSetCount: workoutMetrics.totalSetCount,
+    completedExerciseCount: workoutMetrics.completedExerciseCount,
+    totalExerciseCount: workoutMetrics.totalExerciseCount,
+    completionRate: workoutMetrics.completionRate,
+    steps: steps,
+    sleepMinutes: sleepMinutes,
+    sleepHours: _minutesToHours(sleepMinutes),
+    sleepStartAt: sleepStartAt,
+    sleepEndAt: sleepEndAt,
+    napMinutes: napMinutes,
+    napHours: _minutesToHours(napMinutes),
+    napStartAt: napStartAt,
+    napEndAt: napEndAt,
+    napSessions: napSessions,
+    heartRateAvg: heartRateAvg,
+    restingHeartRate: restingHeartRate,
     fatigue: fatigue,
     muscleSoreness: muscleSoreness,
     sorenessAreas: sorenessAreas,
     motivation: motivation,
     mood: mood,
+    recoveryScore: recoveryScore,
     skipReason: skipReason,
     memo: memo,
     healthSource: health.source || existing.healthSource || '',
@@ -705,11 +879,11 @@ function _parseJsonCell(value) {
 // ============ daily_summary ============
 function _dailySummaryHeaders() {
   return [
-    'date','weekday','shiftType','workStart','workEnd','destination','hotelName','availableMinutes',
+    'date','weekday','shiftType','workStart','workEnd','destination','hotelName','availableMinutes','workMinutes','workloadScore',
     'judgmentResult','judgmentScore','judgmentReason',
-    'didWorkout','workoutType','totalDurationMinutes',
-    'steps','sleepMinutes','sleepStartAt','sleepEndAt','napMinutes','napStartAt','napEndAt','napSessions','heartRateAvg','restingHeartRate',
-    'fatigue','muscleSoreness','sorenessAreas','motivation','mood',
+    'didWorkout','workoutType','totalDurationMinutes','cardioMinutes','strengthSetCount','completedSetCount','totalSetCount','completedExerciseCount','totalExerciseCount','completionRate',
+    'steps','sleepMinutes','sleepHours','sleepStartAt','sleepEndAt','napMinutes','napHours','napStartAt','napEndAt','napSessions','heartRateAvg','restingHeartRate',
+    'fatigue','muscleSoreness','sorenessAreas','motivation','mood','recoveryScore',
     'skipReason','memo','healthSource','lastHealthFetchAt','lastSyncedAt',
     'sourceDevice','updatedBy','updatedAt','revision'
   ];
@@ -727,14 +901,20 @@ function _saveDailySummary(d, clientRevision) {
   var sheet = _sheetWithHeaders('daily_summary', _dailySummaryHeaders());
   var row = [
     d.date, weekday, d.shiftType||'', d.workStart||'', d.workEnd||'', d.destination||'', d.hotelName||'', d.availableMinutes != null ? d.availableMinutes : '',
+    d.workMinutes != null ? d.workMinutes : '', d.workloadScore != null ? d.workloadScore : '',
     d.judgmentResult != null ? d.judgmentResult : '', d.judgmentScore != null ? d.judgmentScore : '', d.judgmentReason||'',
     d.didWorkout||'', d.workoutType||'', d.totalDurationMinutes != null ? d.totalDurationMinutes : '',
-    d.steps != null ? d.steps : '', d.sleepMinutes != null ? d.sleepMinutes : '',
+    d.cardioMinutes != null ? d.cardioMinutes : '', d.strengthSetCount != null ? d.strengthSetCount : '',
+    d.completedSetCount != null ? d.completedSetCount : '', d.totalSetCount != null ? d.totalSetCount : '',
+    d.completedExerciseCount != null ? d.completedExerciseCount : '', d.totalExerciseCount != null ? d.totalExerciseCount : '',
+    d.completionRate != null ? d.completionRate : '',
+    d.steps != null ? d.steps : '', d.sleepMinutes != null ? d.sleepMinutes : '', d.sleepHours != null ? d.sleepHours : '',
     d.sleepStartAt || '', d.sleepEndAt || '',
-    d.napMinutes != null ? d.napMinutes : '', d.napStartAt || '', d.napEndAt || '', _jsonCell(d.napSessions),
+    d.napMinutes != null ? d.napMinutes : '', d.napHours != null ? d.napHours : '', d.napStartAt || '', d.napEndAt || '', _jsonCell(d.napSessions),
     d.heartRateAvg != null ? d.heartRateAvg : '', d.restingHeartRate != null ? d.restingHeartRate : '',
     d.fatigue != null ? d.fatigue : '', d.muscleSoreness != null ? d.muscleSoreness : '', d.sorenessAreas||'',
-    d.motivation != null ? d.motivation : '', d.mood != null ? d.mood : '', d.skipReason||'', d.memo||'',
+    d.motivation != null ? d.motivation : '', d.mood != null ? d.mood : '', d.recoveryScore != null ? d.recoveryScore : '',
+    d.skipReason||'', d.memo||'',
     d.healthSource||'', d.lastHealthFetchAt||'', new Date().toISOString(),
     d.sourceDevice||'', d.updatedBy||'', d.updatedAt||'', 1
   ];

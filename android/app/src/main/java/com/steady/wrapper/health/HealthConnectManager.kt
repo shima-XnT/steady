@@ -24,10 +24,21 @@ data class SleepSummary(
     val napMinutes: Long? = null,
     val napStartAt: String? = null,
     val napEndAt: String? = null,
-    val napSessions: List<NapSummary> = emptyList()
+    val napSessions: List<NapSummary> = emptyList(),
+    val sleepSessions: List<SleepSegmentSummary> = emptyList(),
+    val sleepSessionCount: Int = 0,
+    val napCount: Int = 0,
+    val sleepAnchor: String? = null,
+    val sleepSummary: String? = null
 )
 
 data class NapSummary(
+    val minutes: Long,
+    val startAt: String?,
+    val endAt: String?
+)
+
+data class SleepSegmentSummary(
     val minutes: Long,
     val startAt: String?,
     val endAt: String?
@@ -85,8 +96,8 @@ class HealthConnectManager(private val context: Context) {
      * 指定日の主睡眠を取得する。
      *
      * Health Connect には昼寝も SleepSessionRecord として入るため、単純合算すると
-     * 「昼寝だけがその日の睡眠」に見えやすい。対象日の朝に終わる長めの睡眠を最優先にし、
-     * それが無い場合だけ、対象日の夜に始まる長めの睡眠や最長セッションへフォールバックする。
+     * 「昼寝だけがその日の睡眠」に見えやすい。日付は「起床した日」として扱い、
+     * 対象日の朝に終わる長めの睡眠だけを主睡眠にする。対象日の夜に始まる睡眠は翌日分。
      */
     suspend fun getSleepSummary(dateStr: String): SleepSummary? {
          if (!isAvailable()) return null
@@ -94,8 +105,7 @@ class HealthConnectManager(private val context: Context) {
          try {
              val date = LocalDate.parse(dateStr)
              val zone = ZoneId.of("Asia/Tokyo")
-             // 睡眠は「前夜に始まって当日朝に終わる」ことが多い。
-             // 過去日の表示差も吸収するため、対象日夜開始の睡眠も候補に入れてから主睡眠を選ぶ。
+             // 主睡眠は前夜〜当日朝、仮眠は当日昼〜夜を拾う。翌朝に終わる睡眠は翌日側で扱う。
              val start = date.minusDays(1).atTime(18, 0).atZone(zone)
              val end = date.plusDays(1).atTime(12, 0).atZone(zone)
               
@@ -130,17 +140,39 @@ class HealthConnectManager(private val context: Context) {
                      endAt = nap.record.endTime.atZone(zone).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
                  )
              }
+             val sleepSessions = grouped.map { segment ->
+                 SleepSegmentSummary(
+                     minutes = segment.minutes,
+                     startAt = segment.record.startTime.atZone(zone).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                     endAt = segment.record.endTime.atZone(zone).format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+                 )
+             }
 
              if (totalMinutes == null && napMinutes == null) return null
 
+             val sleepStartAt = sleepStart?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+             val sleepEndAt = sleepEnd?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+             val napStartAt = napStart?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+             val napEndAt = napEnd?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+             val anchor = when {
+                 totalMinutes != null -> "wake_date"
+                 napMinutes != null -> "nap_only"
+                 else -> null
+             }
+
              return SleepSummary(
                  minutes = totalMinutes,
-                 startAt = sleepStart?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-                 endAt = sleepEnd?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+                 startAt = sleepStartAt,
+                 endAt = sleepEndAt,
                  napMinutes = napMinutes,
-                 napStartAt = napStart?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-                 napEndAt = napEnd?.atZone(zone)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
-                 napSessions = napSessions
+                 napStartAt = napStartAt,
+                 napEndAt = napEndAt,
+                 napSessions = napSessions,
+                 sleepSessions = sleepSessions,
+                 sleepSessionCount = sleepSessions.size,
+                 napCount = napSessions.size,
+                 sleepAnchor = anchor,
+                 sleepSummary = buildSleepSummaryText(totalMinutes, sleepStartAt, sleepEndAt, napSessions)
              )
          } catch (e: Exception) {
              Log.e(TAG, "Error reading sleep: \${e.message}")
@@ -171,21 +203,22 @@ class HealthConnectManager(private val context: Context) {
             looksLikeNightSleep &&
                 endDate == targetDate &&
                 isTimeBetween(endTime, LocalTime.of(3, 0), LocalTime.of(14, 0))
-        val startsOnTargetNight =
-            startDate == targetDate && !startTime.isBefore(LocalTime.of(18, 0))
         val spansNightAroundTarget =
-            startDate != endDate && (startDate == targetDate || endDate == targetDate)
+            startDate != endDate && endDate == targetDate
+        val startsNextNight =
+            startDate == targetDate && !startTime.isBefore(LocalTime.of(18, 0)) && endDate.isAfter(targetDate)
         val daytimeNap =
             startDate == endDate &&
+                startDate == targetDate &&
                 !startTime.isBefore(LocalTime.of(9, 0)) &&
                 !endTime.isAfter(LocalTime.of(19, 0))
 
         var score = minutes
         if (wakesOnTargetMorning) score += 30000
-        if (startsOnTargetNight) score += 15000
         if (spansNightAroundTarget) score += 8000
         if (minutes >= 180) score += 5000 else score -= 12000
         if (daytimeNap) score -= 7000
+        if (startsNextNight) score -= 20000
 
         return SleepCandidate(record, minutes, startLocal, endLocal, score)
     }
@@ -197,14 +230,18 @@ class HealthConnectManager(private val context: Context) {
         val endDate = candidate.endLocal.toLocalDate()
         val startTime = candidate.startLocal.toLocalTime()
         val endTime = candidate.endLocal.toLocalTime()
-        val spansNight = startDate != endDate && (startDate == targetDate || endDate == targetDate)
+        val spansNight = startDate != endDate && endDate == targetDate
         val wakesOnTargetMorning =
             endDate == targetDate &&
                 isTimeBetween(endTime, LocalTime.of(3, 0), LocalTime.of(14, 0)) &&
                 (spansNight || startTime.isBefore(LocalTime.of(9, 0)) || !startTime.isBefore(LocalTime.of(18, 0)))
-        val startsOnTargetNight = startDate == targetDate && !startTime.isBefore(LocalTime.of(18, 0))
+        val sameDateEarlySleep =
+            startDate == targetDate &&
+                endDate == targetDate &&
+                startTime.isBefore(LocalTime.of(6, 0)) &&
+                isTimeBetween(endTime, LocalTime.of(6, 0), LocalTime.of(14, 0))
 
-        return wakesOnTargetMorning || startsOnTargetNight || spansNight
+        return wakesOnTargetMorning || sameDateEarlySleep || spansNight
     }
 
     private fun isNapCandidate(candidate: SleepCandidate, targetDate: LocalDate): Boolean {
@@ -217,10 +254,15 @@ class HealthConnectManager(private val context: Context) {
 
         val sameDayDaytime =
             startDate == endDate &&
+                startDate == targetDate &&
                 !startTime.isBefore(LocalTime.of(9, 0)) &&
-                !endTime.isAfter(LocalTime.of(20, 0))
+                !endTime.isAfter(LocalTime.of(22, 0))
         val shortRest = candidate.minutes <= 180
-        val likelyNextNightSleep = !startTime.isBefore(LocalTime.of(18, 0)) && candidate.minutes > 120
+        val likelyNextNightSleep =
+            startDate == targetDate &&
+                !startTime.isBefore(LocalTime.of(18, 0)) &&
+                candidate.minutes > 120 &&
+                endDate.isAfter(targetDate)
 
         return (sameDayDaytime || shortRest) && !likelyNextNightSleep
     }
@@ -262,6 +304,46 @@ class HealthConnectManager(private val context: Context) {
 
     private fun isTimeBetween(time: LocalTime, start: LocalTime, end: LocalTime): Boolean {
         return !time.isBefore(start) && !time.isAfter(end)
+    }
+
+    private fun buildSleepSummaryText(
+        sleepMinutes: Long?,
+        sleepStartAt: String?,
+        sleepEndAt: String?,
+        naps: List<NapSummary>
+    ): String? {
+        val parts = mutableListOf<String>()
+        if (sleepMinutes != null) {
+            val window = listOf(shortClock(sleepStartAt), shortClock(sleepEndAt))
+                .filter { it.isNotBlank() }
+                .joinToString("-")
+            parts.add(listOf("主睡眠", formatMinutes(sleepMinutes), window).filter { it.isNotBlank() }.joinToString(" "))
+        }
+        if (naps.isNotEmpty()) {
+            val napParts = naps.map { nap ->
+                val window = listOf(shortClock(nap.startAt), shortClock(nap.endAt))
+                    .filter { it.isNotBlank() }
+                    .joinToString("-")
+                listOf(formatMinutes(nap.minutes), window).filter { it.isNotBlank() }.joinToString(" ")
+            }
+            parts.add("仮眠${naps.size}回 " + napParts.joinToString(" / "))
+        }
+        return parts.takeIf { it.isNotEmpty() }?.joinToString(" / ")
+    }
+
+    private fun formatMinutes(minutes: Long): String {
+        val hours = minutes / 60
+        val rest = minutes % 60
+        return "${hours}:${rest.toString().padStart(2, '0')}"
+    }
+
+    private fun shortClock(value: String?): String {
+        if (value.isNullOrBlank()) return ""
+        return try {
+            ZonedDateTime.parse(value).toLocalTime().truncatedTo(ChronoUnit.MINUTES).toString()
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     /**
