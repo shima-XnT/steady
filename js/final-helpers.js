@@ -41,7 +41,7 @@
       label: '週の目標回数',
       scope: 'shared',
       storage: 'Google スプレッドシート',
-      implemented: false,
+      implemented: true,
       persisted: true,
       defaultValue: 3,
       description: '勤務連動の継続目標。Apps Script 保存成功後のみ確定します。'

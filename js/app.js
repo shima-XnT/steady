@@ -95,11 +95,14 @@
       }
     } catch (err) {
       console.error('View render error:', err);
+      const safeMessage = App.Utils?.escapeHtml
+        ? App.Utils.escapeHtml(err?.message || 'unknown')
+        : String(err?.message || 'unknown').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
       mainContent.innerHTML = `
         <div class="empty-state">
           <div class="empty-icon">⚠️</div>
           <div class="empty-title">表示エラー</div>
-          <div class="empty-text">${err.message}</div>
+          <div class="empty-text">${safeMessage}</div>
           <button class="btn btn-primary mt-16" onclick="App.navigate('home')">ホームに戻る</button>
         </div>`;
     }

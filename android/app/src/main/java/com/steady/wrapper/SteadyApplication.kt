@@ -40,7 +40,7 @@ class SteadyApplication : Application() {
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             Constants.SYNC_WORK_NAME,
-            ExistingPeriodicWorkPolicy.KEEP,
+            ExistingPeriodicWorkPolicy.UPDATE,
             syncRequest
         )
 

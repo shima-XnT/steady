@@ -12,8 +12,8 @@ android {
         applicationId = "com.steady.wrapper"
         minSdk = 28
         targetSdk = 34
-        versionCode = 5
-        versionName = "2.3-naps"
+        versionCode = 6
+        versionName = "2.4-catchup"
     }
 
     buildTypes {

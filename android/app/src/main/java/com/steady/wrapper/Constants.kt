@@ -9,4 +9,5 @@ object Constants {
     // WorkManager
     const val SYNC_WORK_NAME = "steady_health_sync"
     const val SYNC_INTERVAL_MINUTES = 15L // Android minimum
+    const val HEALTH_SYNC_LOOKBACK_DAYS = 3L
 }

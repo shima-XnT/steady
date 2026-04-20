@@ -1,10 +1,12 @@
 // からだログ Service Worker
-const CACHE_NAME = 'steady-v88';
+const CACHE_NAME = 'steady-v89';
 const ASSET_PATHS = [
   'index.html',
   'css/index.css',
   'css/final-polish.css',
   'css/reboot-ui.css',
+  'js/vendor/dexie.min.js',
+  'js/vendor/chart.umd.min.js',
   'js/app.js',
   'js/db.js',
   'js/final-helpers.js',

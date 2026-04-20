@@ -43,38 +43,56 @@ class HealthSyncWorker(
 
         val dao = AppDatabase.getDatabase(applicationContext).healthDailyDao()
         val repository = HealthRepository(healthManager, dao)
-        val today = LocalDate.now().toString()
+        val today = LocalDate.now()
+        val dates = (0L..Constants.HEALTH_SYNC_LOOKBACK_DAYS)
+            .map { today.minusDays(it).toString() }
+            .reversed()
 
-        // 1. Health Connect からデータ取得 → Room に保存
-        val fetched = repository.fetchAndSave(today)
-        if (!fetched) {
-            Log.w(TAG, "No data fetched from Health Connect")
-            return Result.retry()
-        }
+        var postedCount = 0
+        var fetchFailureCount = 0
+        var postFailureCount = 0
 
-        // 2. Room からデータ読み取り
-        val entity = repository.getHealthData(today) ?: run {
-            Log.e(TAG, "Data fetched but not found in Room")
-            return Result.retry()
-        }
-
-        // 3. GAS API に POST
-        return try {
-            val success = postToGas(entity.date, entity.steps, entity.sleepMinutes,
-                entity.sleepStartAt, entity.sleepEndAt,
-                entity.napMinutes, entity.napStartAt, entity.napEndAt,
-                entity.napSessions,
-                entity.heartRateAvg, entity.restingHeartRate)
-            if (success) {
-                Log.d(TAG, "Successfully synced to GAS for $today")
-                Result.success()
-            } else {
-                Log.w(TAG, "GAS POST failed, will retry")
-                Result.retry()
+        dates.forEach { date ->
+            // 1. Health Connect からデータ取得 → Room に保存
+            val fetched = repository.fetchAndSave(date)
+            if (!fetched) {
+                fetchFailureCount++
+                Log.w(TAG, "No data fetched from Health Connect for $date")
+                return@forEach
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "GAS POST exception", e)
-            Result.retry()
+
+            // 2. Room からデータ読み取り
+            val entity = repository.getHealthData(date) ?: run {
+                fetchFailureCount++
+                Log.e(TAG, "Data fetched but not found in Room for $date")
+                return@forEach
+            }
+
+            // 3. GAS API に POST
+            try {
+                val success = postToGas(entity.date, entity.steps, entity.sleepMinutes,
+                    entity.sleepStartAt, entity.sleepEndAt,
+                    entity.napMinutes, entity.napStartAt, entity.napEndAt,
+                    entity.napSessions,
+                    entity.heartRateAvg, entity.restingHeartRate)
+                if (success) {
+                    postedCount++
+                    Log.d(TAG, "Successfully synced to GAS for $date")
+                } else {
+                    postFailureCount++
+                    Log.w(TAG, "GAS POST failed for $date")
+                }
+            } catch (e: Exception) {
+                postFailureCount++
+                Log.e(TAG, "GAS POST exception for $date", e)
+            }
+        }
+
+        return when {
+            postFailureCount > 0 -> Result.retry()
+            postedCount > 0 -> Result.success()
+            fetchFailureCount > 0 -> Result.retry()
+            else -> Result.success()
         }
     }
 
