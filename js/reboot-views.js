@@ -297,6 +297,7 @@
     }).filter(Boolean).join(' / ');
   }
   function formatSleepDetail(health, fallback = '') {
+    if (health?.sleepSummary) return String(health.sleepSummary);
     const parts = [];
     const sleepWindow = formatSleepWindow(health);
     const napWindow = formatNapWindow(health);

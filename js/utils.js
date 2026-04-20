@@ -38,6 +38,12 @@
       return start && end ? `${start}-${end}` : '';
     },
 
+    formatSleepDetail(health, fallback = '') {
+      if (health?.sleepSummary) return String(health.sleepSummary);
+      const window = this.formatSleepWindow(health);
+      return window || fallback;
+    },
+
     // 日付フォーマット
     today() {
       const d = new Date();
@@ -281,5 +287,6 @@
 
   App.Utils = Utils;
   window.formatSleepWindow = window.formatSleepWindow || ((health) => App.Utils.formatSleepWindow(health));
+  window.formatSleepDetail = window.formatSleepDetail || ((health, fallback) => App.Utils.formatSleepDetail(health, fallback));
   window.formatClockFromIso = window.formatClockFromIso || ((value) => App.Utils.formatClockFromIso(value));
 })();

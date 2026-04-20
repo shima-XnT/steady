@@ -73,7 +73,9 @@ class HealthSyncWorker(
                 val success = postToGas(entity.date, entity.steps, entity.sleepMinutes,
                     entity.sleepStartAt, entity.sleepEndAt,
                     entity.napMinutes, entity.napStartAt, entity.napEndAt,
-                    entity.napSessions,
+                    entity.napSessions, entity.sleepSessions,
+                    entity.sleepSessionCount, entity.napCount,
+                    entity.sleepAnchor, entity.sleepSummary,
                     entity.heartRateAvg, entity.restingHeartRate)
                 if (success) {
                     postedCount++
@@ -109,6 +111,11 @@ class HealthSyncWorker(
         napStartAt: String?,
         napEndAt: String?,
         napSessions: String?,
+        sleepSessions: String?,
+        sleepSessionCount: Int?,
+        napCount: Int?,
+        sleepAnchor: String?,
+        sleepSummary: String?,
         heartRateAvg: Long?,
         restingHeartRate: Long?
     ): Boolean = withContext(Dispatchers.IO) {
@@ -123,6 +130,11 @@ class HealthSyncWorker(
             if (napStartAt != null) put("napStartAt", napStartAt)
             if (napEndAt != null) put("napEndAt", napEndAt)
             if (!napSessions.isNullOrBlank()) put("napSessions", JSONArray(napSessions))
+            if (!sleepSessions.isNullOrBlank()) put("sleepSessions", JSONArray(sleepSessions))
+            if (sleepSessionCount != null) put("sleepSessionCount", sleepSessionCount)
+            if (napCount != null) put("napCount", napCount)
+            if (!sleepAnchor.isNullOrBlank()) put("sleepAnchor", sleepAnchor)
+            if (!sleepSummary.isNullOrBlank()) put("sleepSummary", sleepSummary)
             if (heartRateAvg != null) put("heartRateAvg", heartRateAvg)
             if (restingHeartRate != null) put("restingHeartRate", restingHeartRate)
             put("source", "health_connect")

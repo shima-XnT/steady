@@ -53,10 +53,15 @@
         sleepMinutes: data.sleepMinutes ?? null,
         sleepStartAt: data.sleepStartAt ?? null,
         sleepEndAt: data.sleepEndAt ?? null,
+        sleepSessions: data.sleepSessions ?? null,
+        sleepSessionCount: data.sleepSessionCount ?? null,
         napMinutes: data.napMinutes ?? null,
         napStartAt: data.napStartAt ?? null,
         napEndAt: data.napEndAt ?? null,
         napSessions: data.napSessions ?? null,
+        napCount: data.napCount ?? null,
+        sleepAnchor: data.sleepAnchor ?? null,
+        sleepSummary: data.sleepSummary ?? null,
         heartRateAvg: data.heartRateAvg ?? null,
         restingHeartRate: data.restingHeartRate ?? null
       };
@@ -119,10 +124,15 @@
         snapshot.sleepMinutes != null ||
         snapshot.sleepStartAt != null ||
         snapshot.sleepEndAt != null ||
+        snapshot.sleepSessions != null ||
+        snapshot.sleepSessionCount != null ||
         snapshot.napMinutes != null ||
         snapshot.napStartAt != null ||
         snapshot.napEndAt != null ||
         snapshot.napSessions != null ||
+        snapshot.napCount != null ||
+        snapshot.sleepAnchor != null ||
+        snapshot.sleepSummary != null ||
         snapshot.heartRateAvg != null ||
         snapshot.restingHeartRate != null
       );
@@ -148,10 +158,15 @@
       if (snapshot.sleepMinutes != null) healthData.sleepMinutes = snapshot.sleepMinutes;
       if (snapshot.sleepStartAt != null) healthData.sleepStartAt = snapshot.sleepStartAt;
       if (snapshot.sleepEndAt != null) healthData.sleepEndAt = snapshot.sleepEndAt;
+      if (snapshot.sleepSessions != null) healthData.sleepSessions = snapshot.sleepSessions;
+      if (snapshot.sleepSessionCount != null) healthData.sleepSessionCount = snapshot.sleepSessionCount;
       if (snapshot.napMinutes != null) healthData.napMinutes = snapshot.napMinutes;
       if (snapshot.napStartAt != null) healthData.napStartAt = snapshot.napStartAt;
       if (snapshot.napEndAt != null) healthData.napEndAt = snapshot.napEndAt;
       if (snapshot.napSessions != null) healthData.napSessions = snapshot.napSessions;
+      if (snapshot.napCount != null) healthData.napCount = snapshot.napCount;
+      if (snapshot.sleepAnchor != null) healthData.sleepAnchor = snapshot.sleepAnchor;
+      if (snapshot.sleepSummary != null) healthData.sleepSummary = snapshot.sleepSummary;
       if (snapshot.heartRateAvg != null) healthData.heartRateAvg = snapshot.heartRateAvg;
       if (snapshot.restingHeartRate != null) healthData.restingHeartRate = snapshot.restingHeartRate;
 

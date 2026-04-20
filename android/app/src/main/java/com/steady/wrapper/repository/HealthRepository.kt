@@ -5,6 +5,7 @@ import com.steady.wrapper.data.HealthDailyDao
 import com.steady.wrapper.data.HealthDailyEntity
 import com.steady.wrapper.health.HealthConnectManager
 import com.steady.wrapper.health.NapSummary
+import com.steady.wrapper.health.SleepSegmentSummary
 import org.json.JSONArray
 import org.json.JSONObject
 import java.time.ZonedDateTime
@@ -32,6 +33,7 @@ class HealthRepository(
             val sleep = sleepSummary?.minutes
             val nap = sleepSummary?.napMinutes
             val napSessions = encodeNapSessions(sleepSummary?.napSessions.orEmpty())
+            val sleepSessions = encodeSleepSessions(sleepSummary?.sleepSessions.orEmpty())
             val heartRate = healthConnectManager.getAverageHeartRate(dateStr)
             val restingHr = healthConnectManager.getRestingHeartRate(dateStr)
 
@@ -51,6 +53,11 @@ class HealthRepository(
                 napStartAt = sleepSummary?.napStartAt,
                 napEndAt = sleepSummary?.napEndAt,
                 napSessions = napSessions,
+                sleepSessions = sleepSessions,
+                sleepSessionCount = sleepSummary?.sleepSessionCount,
+                napCount = sleepSummary?.napCount,
+                sleepAnchor = sleepSummary?.sleepAnchor,
+                sleepSummary = sleepSummary?.sleepSummary,
                 heartRateAvg = heartRate,
                 restingHeartRate = restingHr,
                 source = "health_connect",
@@ -70,6 +77,7 @@ class HealthRepository(
                         date = dateStr,
                         steps = null, sleepMinutes = null, sleepStartAt = null, sleepEndAt = null,
                         napMinutes = null, napStartAt = null, napEndAt = null, napSessions = null,
+                        sleepSessions = null, sleepSessionCount = null, napCount = null, sleepAnchor = null, sleepSummary = null,
                         heartRateAvg = null, restingHeartRate = null,
                         source = "health_connect",
                         syncedAt = ZonedDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME),
@@ -86,6 +94,19 @@ class HealthRepository(
     }
 
     private fun encodeNapSessions(sessions: List<NapSummary>): String? {
+        if (sessions.isEmpty()) return null
+        val array = JSONArray()
+        sessions.forEach { session ->
+            array.put(JSONObject().apply {
+                put("minutes", session.minutes)
+                put("startAt", session.startAt)
+                put("endAt", session.endAt)
+            })
+        }
+        return array.toString()
+    }
+
+    private fun encodeSleepSessions(sessions: List<SleepSegmentSummary>): String? {
         if (sessions.isEmpty()) return null
         val array = JSONArray()
         sessions.forEach { session ->

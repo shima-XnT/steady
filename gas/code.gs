@@ -192,10 +192,15 @@ function _handleLegacyPost(data) {
       sleepMinutes: data.health.sleepMinutes,
       sleepStartAt: data.health.sleepStartAt,
       sleepEndAt: data.health.sleepEndAt,
+      sleepSessions: data.health.sleepSessions,
+      sleepSessionCount: data.health.sleepSessionCount,
       napMinutes: data.health.napMinutes,
       napStartAt: data.health.napStartAt,
       napEndAt: data.health.napEndAt,
       napSessions: data.health.napSessions,
+      napCount: data.health.napCount,
+      sleepAnchor: data.health.sleepAnchor,
+      sleepSummary: data.health.sleepSummary,
       heartRateAvg: data.health.heartRateAvg,
       restingHeartRate: data.health.restingHeartRate,
       weightKg: data.health.weightKg,
@@ -774,12 +779,32 @@ function _rebuildDailySummary(dateStr, src, by, updatedAt, condJudgPatch, client
   var sleepMinutes = _coalesce(health.sleepMinutes, existing.sleepMinutes);
   var sleepStartAt = _coalesce(health.sleepStartAt, existing.sleepStartAt);
   var sleepEndAt = _coalesce(health.sleepEndAt, existing.sleepEndAt);
+  var sleepSessions = _coalesce(health.sleepSessions, existing.sleepSessions);
+  var sleepSessionCount = _coalesce(health.sleepSessionCount, existing.sleepSessionCount);
   var napMinutes = _coalesce(health.napMinutes, existing.napMinutes);
   var napStartAt = _coalesce(health.napStartAt, existing.napStartAt);
   var napEndAt = _coalesce(health.napEndAt, existing.napEndAt);
   var napSessions = _coalesce(health.napSessions, existing.napSessions);
+  var napCount = _coalesce(health.napCount, existing.napCount);
+  var sleepAnchor = _coalesce(health.sleepAnchor, existing.sleepAnchor);
+  var sleepSummary = _coalesce(health.sleepSummary, existing.sleepSummary);
   var heartRateAvg = _coalesce(health.heartRateAvg, existing.heartRateAvg);
   var restingHeartRate = _coalesce(health.restingHeartRate, existing.restingHeartRate);
+  sleepSessions = sleepSessions || _buildSingleSession(sleepMinutes, sleepStartAt, sleepEndAt);
+  napSessions = napSessions || _buildSingleSession(napMinutes, napStartAt, napEndAt);
+  sleepSessionCount = _coalesce(sleepSessionCount, _sessionCount(sleepSessions, sleepMinutes));
+  napCount = _coalesce(napCount, _sessionCount(napSessions, napMinutes));
+  sleepAnchor = sleepAnchor || (sleepMinutes != null && sleepMinutes !== '' ? 'wake_date' : (napMinutes != null && napMinutes !== '' ? 'nap_only' : ''));
+  sleepSummary = sleepSummary || _buildSleepSummaryText({
+    sleepMinutes: sleepMinutes,
+    sleepStartAt: sleepStartAt,
+    sleepEndAt: sleepEndAt,
+    sleepSessions: sleepSessions,
+    napMinutes: napMinutes,
+    napStartAt: napStartAt,
+    napEndAt: napEndAt,
+    napSessions: napSessions
+  });
   var workloadScore = _estimateWorkloadScore(shiftType, workMinutes, steps);
   var recoveryScore = _estimateRecoveryScore(sleepMinutes, napMinutes, fatigue, muscleSoreness, restingHeartRate);
 
@@ -811,11 +836,16 @@ function _rebuildDailySummary(dateStr, src, by, updatedAt, condJudgPatch, client
     sleepHours: _minutesToHours(sleepMinutes),
     sleepStartAt: sleepStartAt,
     sleepEndAt: sleepEndAt,
+    sleepSessions: sleepSessions,
+    sleepSessionCount: sleepSessionCount,
     napMinutes: napMinutes,
     napHours: _minutesToHours(napMinutes),
     napStartAt: napStartAt,
     napEndAt: napEndAt,
     napSessions: napSessions,
+    napCount: napCount,
+    sleepAnchor: sleepAnchor,
+    sleepSummary: sleepSummary,
     heartRateAvg: heartRateAvg,
     restingHeartRate: restingHeartRate,
     fatigue: fatigue,
@@ -876,13 +906,85 @@ function _parseJsonCell(value) {
   }
 }
 
+function _sessionList(value) {
+  var parsed = _parseJsonCell(value);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter(function(item) { return item && typeof item === 'object'; });
+}
+
+function _sessionCount(value, fallbackMinutes) {
+  var sessions = _sessionList(value);
+  if (sessions.length > 0) return sessions.length;
+  return fallbackMinutes != null && fallbackMinutes !== '' ? 1 : '';
+}
+
+function _buildSingleSession(minutes, startAt, endAt) {
+  if ((minutes == null || minutes === '') && !startAt && !endAt) return [];
+  return [{
+    minutes: minutes != null && minutes !== '' ? Number(minutes) : '',
+    startAt: startAt || '',
+    endAt: endAt || ''
+  }];
+}
+
+function _formatDurationText(minutes) {
+  var n = _numberOrNull(minutes);
+  if (n == null) return '';
+  var h = Math.floor(n / 60);
+  var m = n % 60;
+  return h + ':' + ('0' + m).slice(-2);
+}
+
+function _formatClockText(value) {
+  if (!value) return '';
+  try {
+    var d = new Date(String(value));
+    if (!isNaN(d.getTime())) {
+      return Utilities.formatDate(d, 'Asia/Tokyo', 'HH:mm');
+    }
+  } catch (e) {}
+  var t = _normTime(value);
+  return /^\d{2}:\d{2}$/.test(t) ? t : '';
+}
+
+function _formatSessionText(session) {
+  var duration = _formatDurationText(session.minutes || session.durationMinutes || session.napMinutes);
+  var start = _formatClockText(session.startAt || session.napStartAt);
+  var end = _formatClockText(session.endAt || session.napEndAt);
+  var window = start && end ? start + '-' + end : '';
+  return [duration, window].filter(function(part) { return part; }).join(' ');
+}
+
+function _buildSleepSummaryText(d) {
+  var parts = [];
+  var sleepSessions = _sessionList(d.sleepSessions);
+  if (sleepSessions.length === 0) {
+    sleepSessions = _buildSingleSession(d.sleepMinutes, d.sleepStartAt, d.sleepEndAt);
+  }
+  if (d.sleepMinutes != null && d.sleepMinutes !== '') {
+    var mainWindow = _formatClockText(d.sleepStartAt) && _formatClockText(d.sleepEndAt)
+      ? _formatClockText(d.sleepStartAt) + '-' + _formatClockText(d.sleepEndAt)
+      : '';
+    parts.push(['主睡眠', _formatDurationText(d.sleepMinutes), mainWindow].filter(function(part) { return part; }).join(' '));
+  }
+  var napSessions = _sessionList(d.napSessions);
+  if (napSessions.length === 0) {
+    napSessions = _buildSingleSession(d.napMinutes, d.napStartAt, d.napEndAt);
+  }
+  if (napSessions.length > 0 && d.napMinutes != null && d.napMinutes !== '') {
+    var napText = napSessions.map(_formatSessionText).filter(function(part) { return part; }).join(' / ');
+    parts.push('仮眠' + napSessions.length + '回 ' + napText);
+  }
+  return parts.join(' / ');
+}
+
 // ============ daily_summary ============
 function _dailySummaryHeaders() {
   return [
     'date','weekday','shiftType','workStart','workEnd','destination','hotelName','availableMinutes','workMinutes','workloadScore',
     'judgmentResult','judgmentScore','judgmentReason',
     'didWorkout','workoutType','totalDurationMinutes','cardioMinutes','strengthSetCount','completedSetCount','totalSetCount','completedExerciseCount','totalExerciseCount','completionRate',
-    'steps','sleepMinutes','sleepHours','sleepStartAt','sleepEndAt','napMinutes','napHours','napStartAt','napEndAt','napSessions','heartRateAvg','restingHeartRate',
+    'steps','sleepMinutes','sleepHours','sleepStartAt','sleepEndAt','sleepSessions','sleepSessionCount','napMinutes','napHours','napStartAt','napEndAt','napSessions','napCount','sleepAnchor','sleepSummary','heartRateAvg','restingHeartRate',
     'fatigue','muscleSoreness','sorenessAreas','motivation','mood','recoveryScore',
     'skipReason','memo','healthSource','lastHealthFetchAt','lastSyncedAt',
     'sourceDevice','updatedBy','updatedAt','revision'
@@ -909,8 +1011,9 @@ function _saveDailySummary(d, clientRevision) {
     d.completedExerciseCount != null ? d.completedExerciseCount : '', d.totalExerciseCount != null ? d.totalExerciseCount : '',
     d.completionRate != null ? d.completionRate : '',
     d.steps != null ? d.steps : '', d.sleepMinutes != null ? d.sleepMinutes : '', d.sleepHours != null ? d.sleepHours : '',
-    d.sleepStartAt || '', d.sleepEndAt || '',
+    d.sleepStartAt || '', d.sleepEndAt || '', _jsonCell(d.sleepSessions), d.sleepSessionCount != null ? d.sleepSessionCount : '',
     d.napMinutes != null ? d.napMinutes : '', d.napHours != null ? d.napHours : '', d.napStartAt || '', d.napEndAt || '', _jsonCell(d.napSessions),
+    d.napCount != null ? d.napCount : '', d.sleepAnchor || '', d.sleepSummary || '',
     d.heartRateAvg != null ? d.heartRateAvg : '', d.restingHeartRate != null ? d.restingHeartRate : '',
     d.fatigue != null ? d.fatigue : '', d.muscleSoreness != null ? d.muscleSoreness : '', d.sorenessAreas||'',
     d.motivation != null ? d.motivation : '', d.mood != null ? d.mood : '', d.recoveryScore != null ? d.recoveryScore : '',
@@ -966,8 +1069,23 @@ function _appendWorkoutDetails(d) {
 
 // ============ health_daily ============
 function _saveHealthDaily(d, clientRevision) {
+  var sleepSessions = d.sleepSessions || _buildSingleSession(d.sleepMinutes, d.sleepStartAt, d.sleepEndAt);
+  var napSessions = d.napSessions || _buildSingleSession(d.napMinutes, d.napStartAt, d.napEndAt);
+  var sleepSessionCount = _coalesce(d.sleepSessionCount, _sessionCount(sleepSessions, d.sleepMinutes));
+  var napCount = _coalesce(d.napCount, _sessionCount(napSessions, d.napMinutes));
+  var sleepAnchor = d.sleepAnchor || (d.sleepMinutes != null && d.sleepMinutes !== '' ? 'wake_date' : (d.napMinutes != null && d.napMinutes !== '' ? 'nap_only' : ''));
+  var sleepSummary = d.sleepSummary || _buildSleepSummaryText({
+    sleepMinutes: d.sleepMinutes,
+    sleepStartAt: d.sleepStartAt,
+    sleepEndAt: d.sleepEndAt,
+    sleepSessions: sleepSessions,
+    napMinutes: d.napMinutes,
+    napStartAt: d.napStartAt,
+    napEndAt: d.napEndAt,
+    napSessions: napSessions
+  });
   var sheet = _sheetWithHeaders('health_daily', [
-    'date','steps','sleepMinutes','sleepStartAt','sleepEndAt','napMinutes','napStartAt','napEndAt','napSessions','heartRateAvg','restingHeartRate',
+    'date','steps','sleepMinutes','sleepStartAt','sleepEndAt','sleepSessions','sleepSessionCount','napMinutes','napStartAt','napEndAt','napSessions','napCount','sleepAnchor','sleepSummary','heartRateAvg','restingHeartRate',
     'weightKg','source','fetchedAt','syncedAt','status',
     'sourceDevice','updatedBy','updatedAt','revision'
   ]);
@@ -977,10 +1095,15 @@ function _saveHealthDaily(d, clientRevision) {
     d.sleepMinutes != null ? d.sleepMinutes : '',
     d.sleepStartAt || '',
     d.sleepEndAt || '',
+    _jsonCell(sleepSessions),
+    sleepSessionCount != null ? sleepSessionCount : '',
     d.napMinutes != null ? d.napMinutes : '',
     d.napStartAt || '',
     d.napEndAt || '',
-    _jsonCell(d.napSessions),
+    _jsonCell(napSessions),
+    napCount != null ? napCount : '',
+    sleepAnchor,
+    sleepSummary,
     d.heartRateAvg != null ? d.heartRateAvg : '',
     d.restingHeartRate != null ? d.restingHeartRate : '',
     d.weightKg != null ? d.weightKg : '',
@@ -1151,10 +1274,15 @@ function _getAll() {
       if (obj.sleepMinutes !== '' && obj.sleepMinutes !== null && obj.sleepMinutes !== undefined) healthObj.sleepMinutes = Number(obj.sleepMinutes);
       if (obj.sleepStartAt !== '' && obj.sleepStartAt !== null && obj.sleepStartAt !== undefined) healthObj.sleepStartAt = obj.sleepStartAt;
       if (obj.sleepEndAt !== '' && obj.sleepEndAt !== null && obj.sleepEndAt !== undefined) healthObj.sleepEndAt = obj.sleepEndAt;
+      if (obj.sleepSessions !== '' && obj.sleepSessions !== null && obj.sleepSessions !== undefined) healthObj.sleepSessions = _parseJsonCell(obj.sleepSessions);
+      if (obj.sleepSessionCount !== '' && obj.sleepSessionCount !== null && obj.sleepSessionCount !== undefined) healthObj.sleepSessionCount = Number(obj.sleepSessionCount);
       if (obj.napMinutes !== '' && obj.napMinutes !== null && obj.napMinutes !== undefined) healthObj.napMinutes = Number(obj.napMinutes);
       if (obj.napStartAt !== '' && obj.napStartAt !== null && obj.napStartAt !== undefined) healthObj.napStartAt = obj.napStartAt;
       if (obj.napEndAt !== '' && obj.napEndAt !== null && obj.napEndAt !== undefined) healthObj.napEndAt = obj.napEndAt;
       if (obj.napSessions !== '' && obj.napSessions !== null && obj.napSessions !== undefined) healthObj.napSessions = _parseJsonCell(obj.napSessions);
+      if (obj.napCount !== '' && obj.napCount !== null && obj.napCount !== undefined) healthObj.napCount = Number(obj.napCount);
+      if (obj.sleepAnchor !== '' && obj.sleepAnchor !== null && obj.sleepAnchor !== undefined) healthObj.sleepAnchor = obj.sleepAnchor;
+      if (obj.sleepSummary !== '' && obj.sleepSummary !== null && obj.sleepSummary !== undefined) healthObj.sleepSummary = obj.sleepSummary;
       if (obj.heartRateAvg !== '' && obj.heartRateAvg !== null && obj.heartRateAvg !== undefined) healthObj.heartRateAvg = Number(obj.heartRateAvg);
       if (obj.restingHeartRate !== '' && obj.restingHeartRate !== null && obj.restingHeartRate !== undefined) healthObj.restingHeartRate = Number(obj.restingHeartRate);
       byDate[d].health = healthObj;

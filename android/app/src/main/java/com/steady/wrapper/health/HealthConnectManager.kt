@@ -249,8 +249,10 @@ class HealthConnectManager(private val context: Context) {
         val endDate = candidate.endLocal.toLocalDate()
         val startTime = candidate.startLocal.toLocalTime()
         val endTime = candidate.endLocal.toLocalTime()
-        val touchesTargetDate = startDate == targetDate || endDate == targetDate
-        if (!touchesTargetDate || candidate.minutes < 10) return false
+        val belongsToTargetNap =
+            startDate == targetDate ||
+                (endDate == targetDate && !endTime.isBefore(LocalTime.of(9, 0)))
+        if (!belongsToTargetNap || candidate.minutes < 10) return false
 
         val sameDayDaytime =
             startDate == endDate &&
