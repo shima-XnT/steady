@@ -2990,6 +2990,10 @@
   const analyticsCharts = [];
   let onboardingStep = 0;
 
+  function isRestShiftType(type) {
+    return type === 'off' || type === 'paid_leave';
+  }
+
   function h(value) {
     return App.Utils.escapeHtml(value == null ? '' : String(value));
   }
