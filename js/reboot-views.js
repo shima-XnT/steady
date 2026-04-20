@@ -61,6 +61,10 @@
     business_trip: { label: '出張勤務', start: '09:00', end: '18:00' }
   };
 
+  function isRestShiftType(type) {
+    return type === 'off' || type === 'paid_leave';
+  }
+
   const WORKOUT_TIMER_START_KEY = 'steady_workout_timer_start';
   const WORKOUT_TIMER_DATE_KEY = 'steady_workout_timer_date';
   const WORKOUT_TIMER_ELAPSED_KEY = 'steady_workout_timer_elapsed_seconds';
@@ -2470,10 +2474,6 @@
     if (schedule.destination) parts.push(`行き先: ${schedule.destination}`);
     if (schedule.hotelName) parts.push(`ホテル: ${schedule.hotelName}`);
     return parts.join(' / ');
-  }
-
-  function isRestShiftType(type) {
-    return type === 'off' || type === 'paid_leave';
   }
 
   function isLegacyShiftType(type) {

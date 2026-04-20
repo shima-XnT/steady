@@ -1123,6 +1123,11 @@ body {
     grid-template-columns: 1fr;
   }
 
+  .reboot-health-shell .reboot-dashboard-grid,
+  .reboot-analytics-shell .reboot-dashboard-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .reboot-metric-grid-4,
   .reboot-flow-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1270,8 +1275,49 @@ body {
 }
 
 @media (max-width: 767px) {
+  html,
+  body,
+  #app,
+  .main-content {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
   .main-content {
     padding: 14px 14px calc(var(--nav-height) + 16px);
+  }
+
+  .container.reboot-shell {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+
+  .reboot-dashboard-grid,
+  .reboot-health-shell .reboot-dashboard-grid,
+  .reboot-analytics-shell .reboot-dashboard-grid,
+  .reboot-condition-grid,
+  .reboot-workout-grid,
+  .reboot-schedule-grid,
+  .reboot-chart-grid,
+  .reboot-page-head {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .reboot-panel,
+  .reboot-result-card,
+  .reboot-sticky-bar,
+  .reboot-stat-card,
+  .reboot-mini-stat,
+  .reboot-empty-card,
+  .reboot-link-card,
+  .reboot-list-card,
+  .reboot-health-sync-item {
+    min-width: 0;
+    max-width: 100%;
   }
 
   /* === 枠間の余白を確保 === */
@@ -1381,6 +1427,11 @@ body {
     font-size: 0.7rem;
   }
 
+  .reboot-health-shell .reboot-stat-card small,
+  .reboot-health-shell .reboot-health-sync-item small {
+    display: block;
+  }
+
   .reboot-stat-card span,
   .reboot-mini-stat span {
     font-size: 0.72rem;
@@ -1443,6 +1494,10 @@ body {
 @media (max-width: 430px) {
   .main-content {
     padding: 12px 12px calc(var(--nav-height) + 14px);
+  }
+
+  .reboot-health-sync-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .reboot-workout-detail-line {
