@@ -62,7 +62,9 @@
   };
 
   function isRestShiftType(type) {
-    return type === 'off' || type === 'paid_leave';
+    return App.FinalPolish?.isRestShiftType
+      ? App.FinalPolish.isRestShiftType(type)
+      : type === 'off' || type === 'paid_leave';
   }
 
   const WORKOUT_TIMER_START_KEY = 'steady_workout_timer_start';
@@ -2991,7 +2993,9 @@
   let onboardingStep = 0;
 
   function isRestShiftType(type) {
-    return type === 'off' || type === 'paid_leave';
+    return App.FinalPolish?.isRestShiftType
+      ? App.FinalPolish.isRestShiftType(type)
+      : type === 'off' || type === 'paid_leave';
   }
 
   function h(value) {
@@ -3705,7 +3709,7 @@
       }).length;
       const offDayWorkouts = actual.filter(item => {
         const schedule = schedules.find(s => s.date === item.date);
-        return isRestShiftType(schedule?.shiftType);
+        return App.FinalPolish.isRestShiftType(schedule?.shiftType);
       }).length;
 
       return `

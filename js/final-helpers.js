@@ -365,6 +365,11 @@
     return type || '';
   }
 
+  function isRestShiftType(type) {
+    const normalized = normalizeShiftType(type);
+    return normalized === 'off' || normalized === 'paid_leave';
+  }
+
   function installUtilityHelpers() {
     App.Utils.renderSaveState = function(state, options) {
       const actionHtml = options && options.actionLabel && options.actionHandler
@@ -685,6 +690,7 @@
     getShiftLabel,
     formatShiftRange,
     normalizeShiftType,
+    isRestShiftType,
     applyNavigation,
     installDbHelpers
   };
