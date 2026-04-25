@@ -1,7 +1,6 @@
 package com.steady.wrapper
 
 import android.os.Bundle
-import android.util.Log
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -12,10 +11,14 @@ import com.steady.wrapper.data.AppDatabase
 import com.steady.wrapper.health.HealthConnectManager
 import com.steady.wrapper.health.PermissionHelper
 import com.steady.wrapper.repository.HealthRepository
+import com.steady.wrapper.sync.HealthSyncEngine
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.ZonedDateTime
 
 class MainActivity : AppCompatActivity() {
 
@@ -28,130 +31,170 @@ class MainActivity : AppCompatActivity() {
     private lateinit var syncButton: Button
     private lateinit var permissionButton: Button
 
-    companion object {
-        private const val TAG = "SteadySync"
-    }
+    private var foregroundSyncInFlight = false
+    private var transientStatusMessage: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Views
         statusText = findViewById(R.id.text_status)
         dataText = findViewById(R.id.text_data)
         syncButton = findViewById(R.id.btn_sync_now)
         permissionButton = findViewById(R.id.btn_permission)
 
-        // Components
         healthManager = HealthConnectManager(this)
         permissionHelper = PermissionHelper(this)
         val dao = AppDatabase.getDatabase(this).healthDailyDao()
         healthRepository = HealthRepository(healthManager, dao)
 
-        // Listeners
-        syncButton.setOnClickListener { manualSync() }
-        permissionButton.setOnClickListener {
-            lifecycleScope.launch { permissionHelper.requestPermissions(); updateUI() }
-        }
+        syncButton.setOnClickListener { runForegroundSync(reason = "manual_tap", forceUpload = true) }
+        permissionButton.setOnClickListener { requestPermissionsAndSync() }
 
-        // Initial state
         updateUI()
-        observeWorker()
+        observeWorkers()
+        requestFreshSyncIfNeeded(reason = "app_open", force = false)
     }
 
     override fun onResume() {
         super.onResume()
         updateUI()
+        requestFreshSyncIfNeeded(reason = "resume", force = false)
     }
 
-    private fun updateUI() {
+    private fun requestPermissionsAndSync() {
         lifecycleScope.launch {
-            // Permission status
-            val hasPerms = permissionHelper.hasAllPermissions()
-            val hcAvailable = healthManager.isAvailable()
-
-            val permStatus = when {
-                !hcAvailable -> "❌ Health Connect 未インストール"
-                !hasPerms -> "⚠️ 権限が未付与です"
-                else -> "✅ Health Connect 接続済み"
-            }
-            permissionButton.isEnabled = hcAvailable && !hasPerms
-
-            // Today's data
-            val today = LocalDate.now().toString()
-            val entity = healthRepository.getHealthData(today)
-
-            val dataStr = if (entity != null) {
-                buildString {
-                    appendLine("📅 ${today}")
-                    appendLine("🚶 歩数: ${entity.steps ?: "—"}")
-                    appendLine("😴 睡眠: ${entity.sleepMinutes?.let { "${it}分 (${it/60}h${it%60}m)" } ?: "—"}")
-                    appendLine("🛌 就寝: ${entity.sleepStartAt?.take(16)?.replace('T', ' ') ?: "—"}")
-                    appendLine("☀️ 起床: ${entity.sleepEndAt?.take(16)?.replace('T', ' ') ?: "—"}")
-                    appendLine("💤 仮眠: ${entity.napMinutes?.let { "${it}分 (${it/60}h${it%60}m)" } ?: "—"}")
-                    appendLine("睡眠まとめ: ${entity.sleepSummary ?: "—"}")
-                    appendLine("主睡眠分割: ${entity.sleepSessionCount ?: 0} / 仮眠回数: ${entity.napCount ?: 0}")
-                    appendLine("仮眠詳細: ${formatNapSessions(entity.napSessions, entity.napStartAt, entity.napEndAt)}")
-                    appendLine("💓 心拍: ${entity.heartRateAvg ?: "—"} bpm")
-                    appendLine("🫀 安静時: ${entity.restingHeartRate ?: "—"} bpm")
-                    appendLine("")
-                    appendLine("最終取得: ${entity.syncedAt.take(19)}")
-                }
+            val granted = permissionHelper.requestPermissions()
+            updateUI()
+            if (granted) {
+                runForegroundSync(reason = "permission_granted", forceUpload = true)
             } else {
-                "今日のデータはまだありません"
+                statusText.text = "権限がないため同期できません"
             }
-
-            statusText.text = permStatus
-            dataText.text = dataStr
         }
     }
 
-    private fun manualSync() {
+    private fun requestFreshSyncIfNeeded(reason: String, force: Boolean) {
+        lifecycleScope.launch {
+            if (!healthManager.isAvailable()) return@launch
+            if (!permissionHelper.hasReadPermissions()) return@launch
+            if (!HealthSyncEngine.shouldRequestForegroundSync(applicationContext, force)) return@launch
+            runForegroundSync(reason = reason, forceUpload = force)
+        }
+    }
+
+    private fun runForegroundSync(reason: String, forceUpload: Boolean) {
+        if (foregroundSyncInFlight) return
+        foregroundSyncInFlight = true
         syncButton.isEnabled = false
         syncButton.text = "同期中..."
+        statusText.text = "Health Connectを確認しています"
 
         lifecycleScope.launch {
+            var statusMessage = "同期を確認してください"
             try {
-                val today = LocalDate.now().toString()
+                val report = HealthSyncEngine(applicationContext).syncRecentDays(
+                    reason = reason,
+                    requireBackgroundPermission = false,
+                    forceUpload = forceUpload
+                )
 
-                // 1. Health Connect → Room
-                val fetched = healthRepository.fetchAndSave(today)
-                if (!fetched) {
-                    statusText.text = "⚠️ Health Connect からデータを取得できませんでした"
-                    return@launch
+                statusMessage = when (report.status) {
+                    "success" -> if (report.postedCount > 0) {
+                        "最新データを反映しました"
+                    } else {
+                        "最新状態です"
+                    }
+                    "skipped" -> report.message.ifBlank { "同期対象がありません" }
+                    "retry" -> report.message.ifBlank { "同期に失敗しました" }
+                    else -> report.message.ifBlank { "同期状態を確認してください" }
                 }
-
-                // 2. Room → GAS (run the worker immediately)
-                val workManager = WorkManager.getInstance(applicationContext)
-                val oneTimeRequest = androidx.work.OneTimeWorkRequestBuilder<com.steady.wrapper.sync.HealthSyncWorker>().build()
-                workManager.enqueue(oneTimeRequest)
-
-                statusText.text = "✅ 同期リクエストを送信しました"
-            } catch (e: Exception) {
-                Log.e(TAG, "Manual sync failed", e)
-                statusText.text = "❌ 同期に失敗: ${e.message}"
             } finally {
-                syncButton.isEnabled = true
+                foregroundSyncInFlight = false
                 syncButton.text = "今すぐ同期"
+                transientStatusMessage = statusMessage
                 updateUI()
             }
         }
     }
 
-    private fun observeWorker() {
-        WorkManager.getInstance(this)
-            .getWorkInfosForUniqueWorkLiveData(Constants.SYNC_WORK_NAME)
-            .observe(this) { workInfos ->
-                val info = workInfos?.firstOrNull()
-                if (info != null) {
-                    val stateStr = when (info.state) {
-                        WorkInfo.State.RUNNING -> "🔄 同期中..."
-                        WorkInfo.State.ENQUEUED -> "⏳ 次回同期待ち"
-                        WorkInfo.State.SUCCEEDED -> "✅ 同期完了"
-                        WorkInfo.State.FAILED -> "❌ 同期失敗"
-                        else -> info.state.toString()
+    private fun updateUI() {
+        lifecycleScope.launch {
+            val available = healthManager.isAvailable()
+            val hasRead = permissionHelper.hasReadPermissions()
+            val hasBackground = permissionHelper.hasBackgroundReadPermission()
+
+            val permissionStatus = when {
+                !available -> "Health Connectが利用できません"
+                !hasRead -> "読み取り権限が必要です"
+                !hasBackground -> "前面同期は可能 / 自動同期の追加権限待ち"
+                else -> "自動同期は有効です"
+            }
+
+            permissionButton.isEnabled = available && (!hasRead || !hasBackground)
+            permissionButton.text = if (permissionButton.isEnabled) {
+                "Health Connect権限を設定"
+            } else {
+                "権限設定済み"
+            }
+            syncButton.isEnabled = available && hasRead && !foregroundSyncInFlight
+
+            val today = LocalDate.now().toString()
+            val entity = healthRepository.getHealthData(today)
+            val lastSuccessAt = HealthSyncEngine.lastSuccessfulSyncAt(applicationContext)
+            val lastError = HealthSyncEngine.lastSyncError(applicationContext)
+
+            val dataStr = if (entity != null) {
+                buildString {
+                    appendLine("日付: $today")
+                    appendLine("歩数: ${entity.steps ?: "未取得"}")
+                    appendLine("睡眠: ${formatMinutes(entity.sleepMinutes)}")
+                    appendLine("就寝: ${shortDateTime(entity.sleepStartAt)}")
+                    appendLine("起床: ${shortDateTime(entity.sleepEndAt)}")
+                    appendLine("仮眠: ${formatMinutes(entity.napMinutes)}")
+                    appendLine("仮眠詳細: ${formatNapSessions(entity.napSessions, entity.napStartAt, entity.napEndAt)}")
+                    appendLine("睡眠まとめ: ${entity.sleepSummary ?: "未取得"}")
+                    appendLine("平均心拍: ${entity.heartRateAvg?.let { "$it bpm" } ?: "未取得"}")
+                    appendLine("安静時心拍: ${entity.restingHeartRate?.let { "$it bpm" } ?: "未取得"}")
+                    appendLine("最終取得: ${shortDateTime(entity.syncedAt)}")
+                    appendLine("最終反映: ${formatSyncTime(lastSuccessAt)}")
+                    if (lastError.isNotBlank()) {
+                        appendLine("前回エラー: $lastError")
                     }
-                    Log.d(TAG, "Worker state: $stateStr")
+                }
+            } else {
+                buildString {
+                    appendLine("今日のデータはまだありません")
+                    appendLine("状態: $permissionStatus")
+                    appendLine("最終反映: ${formatSyncTime(lastSuccessAt)}")
+                    if (lastError.isNotBlank()) {
+                        appendLine("前回エラー: $lastError")
+                    }
+                }
+            }
+
+            if (!foregroundSyncInFlight) {
+                statusText.text = transientStatusMessage ?: permissionStatus
+                transientStatusMessage = null
+            }
+            dataText.text = dataStr
+        }
+    }
+
+    private fun observeWorkers() {
+        WorkManager.getInstance(this)
+            .getWorkInfosByTagLiveData(Constants.SYNC_WORK_TAG)
+            .observe(this) { workInfos ->
+                val running = workInfos?.any { it.state == WorkInfo.State.RUNNING } == true
+                val failed = workInfos?.any { it.state == WorkInfo.State.FAILED } == true
+                val succeeded = workInfos?.any { it.state == WorkInfo.State.SUCCEEDED } == true
+
+                if (!foregroundSyncInFlight) {
+                    when {
+                        running -> statusText.text = "バックグラウンドで同期中です"
+                        failed -> statusText.text = "自動同期を再試行します"
+                        succeeded -> updateUI()
+                    }
                 }
             }
     }
@@ -164,26 +207,48 @@ class MainActivity : AppCompatActivity() {
                 for (i in 0 until array.length()) {
                     val item = array.optJSONObject(i) ?: continue
                     val minutes = item.optLong("minutes", 0)
-                    val start = shortTime(item.optString("startAt", ""))
-                    val end = shortTime(item.optString("endAt", ""))
-                    val duration = if (minutes > 0) "${minutes}分" else ""
+                    val start = shortDateTime(item.optString("startAt", ""))
+                    val end = shortDateTime(item.optString("endAt", ""))
+                    val duration = if (minutes > 0) formatMinutes(minutes) else ""
                     val window = if (start.isNotBlank() && end.isNotBlank()) "$start-$end" else ""
-                    listOf(duration, window).filter { it.isNotBlank() }.joinToString(" ").takeIf { it.isNotBlank() }?.let {
-                        parts.add(it)
-                    }
+                    listOf(duration, window)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" ")
+                        .takeIf { it.isNotBlank() }
+                        ?.let { parts.add(it) }
                 }
                 if (parts.isNotEmpty()) return parts.joinToString(" / ")
             } catch (_: Exception) {
-                // Fall back to aggregate nap window below.
+                // Fall through to aggregate window.
             }
         }
-        val start = shortTime(fallbackStart)
-        val end = shortTime(fallbackEnd)
-        return if (start.isNotBlank() && end.isNotBlank()) "$start-$end" else "—"
+
+        val start = shortDateTime(fallbackStart)
+        val end = shortDateTime(fallbackEnd)
+        return if (start.isNotBlank() && end.isNotBlank()) "$start-$end" else "なし"
     }
 
-    private fun shortTime(value: String?): String {
+    private fun formatMinutes(minutes: Long?): String {
+        if (minutes == null) return "未取得"
+        val hours = minutes / 60
+        val rest = minutes % 60
+        return "${hours}時間${rest.toString().padStart(2, '0')}分"
+    }
+
+    private fun shortDateTime(value: String?): String {
         if (value.isNullOrBlank()) return ""
-        return value.take(16).replace('T', ' ').takeLast(5)
+        return try {
+            ZonedDateTime.parse(value)
+                .format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))
+        } catch (_: Exception) {
+            value.take(16).replace('T', ' ')
+        }
+    }
+
+    private fun formatSyncTime(epochMs: Long): String {
+        if (epochMs <= 0L) return "未同期"
+        return Instant.ofEpochMilli(epochMs)
+            .atZone(ZoneId.systemDefault())
+            .format(DateTimeFormatter.ofPattern("MM/dd HH:mm"))
     }
 }

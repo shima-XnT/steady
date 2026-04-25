@@ -6,11 +6,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContract
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
-import androidx.health.connect.client.permission.HealthPermission
-import androidx.health.connect.client.records.HeartRateRecord
-import androidx.health.connect.client.records.RestingHeartRateRecord
-import androidx.health.connect.client.records.SleepSessionRecord
-import androidx.health.connect.client.records.StepsRecord
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
@@ -22,29 +17,38 @@ class PermissionHelper(private val activity: ComponentActivity) {
     private val healthConnectClient by lazy { HealthConnectClient.getOrCreate(activity) }
     
     // 必須読み取り権限
-    private val requiredPermissions = setOf(
-        HealthPermission.getReadPermission(StepsRecord::class),
-        HealthPermission.getReadPermission(SleepSessionRecord::class),
-        HealthPermission.getReadPermission(HeartRateRecord::class),
-        HealthPermission.getReadPermission(RestingHeartRateRecord::class)
-    )
+    private val readPermissions = HealthPermissionRegistry.readPermissions
+    private val requestedPermissions = HealthPermissionRegistry.requestedPermissions(includeBackground = true)
+    private val backgroundPermissions = HealthPermissionRegistry.backgroundReadPermissions
 
     private var permissionCallback: ((Boolean) -> Unit)? = null
 
     // 権限要求ランチャー
     private val requestPermissionActivityContract = PermissionController.createRequestPermissionResultContract()
     private val requestPermissions = activity.registerForActivityResult(requestPermissionActivityContract) { granted ->
-        Log.d("PermissionHelper", "Permissions granted: ${granted.containsAll(requiredPermissions)}")
-        permissionCallback?.invoke(granted.containsAll(requiredPermissions))
+        Log.d("PermissionHelper", "Permissions granted: ${granted.containsAll(requestedPermissions)}")
+        permissionCallback?.invoke(granted.containsAll(readPermissions))
         permissionCallback = null
     }
 
-    suspend fun hasAllPermissions(): Boolean {
+    suspend fun hasReadPermissions(): Boolean {
         if (HealthConnectClient.getSdkStatus(activity) != HealthConnectClient.SDK_AVAILABLE) {
             return false
         }
         val granted = healthConnectClient.permissionController.getGrantedPermissions()
-        return granted.containsAll(requiredPermissions)
+        return granted.containsAll(readPermissions)
+    }
+
+    suspend fun hasBackgroundReadPermission(): Boolean {
+        if (HealthConnectClient.getSdkStatus(activity) != HealthConnectClient.SDK_AVAILABLE) {
+            return false
+        }
+        val granted = healthConnectClient.permissionController.getGrantedPermissions()
+        return granted.containsAll(backgroundPermissions)
+    }
+
+    suspend fun hasAllPermissions(): Boolean {
+        return hasReadPermissions() && hasBackgroundReadPermission()
     }
 
     suspend fun requestPermissions(): Boolean = suspendCancellableCoroutine { continuation ->
@@ -57,6 +61,6 @@ class PermissionHelper(private val activity: ComponentActivity) {
             continuation.resume(success)
         }
         
-        requestPermissions.launch(requiredPermissions)
+        requestPermissions.launch(requestedPermissions)
     }
 }

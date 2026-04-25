@@ -64,6 +64,22 @@ class HealthConnectManager(private val context: Context) {
         return HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE
     }
 
+    suspend fun hasReadPermissions(): Boolean {
+        if (!isAvailable()) return false
+        val granted = client.permissionController.getGrantedPermissions()
+        return granted.containsAll(HealthPermissionRegistry.readPermissions)
+    }
+
+    suspend fun hasBackgroundReadPermission(): Boolean {
+        if (!isAvailable()) return false
+        val granted = client.permissionController.getGrantedPermissions()
+        return granted.containsAll(HealthPermissionRegistry.backgroundReadPermissions)
+    }
+
+    suspend fun hasAllPermissions(): Boolean {
+        return hasReadPermissions() && hasBackgroundReadPermission()
+    }
+
     /**
      * 指定された日付の歩数を取得する (Aggregate)
      */

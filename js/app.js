@@ -239,7 +239,7 @@
          if (document.visibilityState === 'visible') {
            tryAutoSync();
          }
-      }, 30000);
+      }, 10000);
 
       // オンライン復帰時に未送信キューを自動再送
       window.addEventListener('online', async () => {
