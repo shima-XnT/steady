@@ -76,7 +76,11 @@
 
     // 前のビューを破棄
     if (currentView && currentView.destroy) {
-      currentView.destroy();
+      try {
+        await currentView.destroy();
+      } catch (destroyError) {
+        console.warn('View destroy error:', destroyError);
+      }
     }
 
     currentRoute = route;

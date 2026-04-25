@@ -36,6 +36,23 @@
     return row ? parseInt(row.value, 10) || fallback : fallback;
   }
 
+  function safeRecordTs(value) {
+    if (!value) return 0;
+    const ts = new Date(String(value)).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  function pickLatestRecord(records) {
+    if (!Array.isArray(records) || records.length === 0) return null;
+    return [...records].sort((a, b) => {
+      const diff = safeRecordTs(b?.updatedAt) - safeRecordTs(a?.updatedAt);
+      if (diff !== 0) return diff;
+      const createdDiff = safeRecordTs(b?.createdAt) - safeRecordTs(a?.createdAt);
+      if (createdDiff !== 0) return createdDiff;
+      return (Number(b?.id) || 0) - (Number(a?.id) || 0);
+    })[0];
+  }
+
   function normalizeHealthPayloadForMigration(health) {
     if (!health) return health;
     const normalized = { ...health };
@@ -177,7 +194,8 @@
     },
 
     async getWorkoutByDate(date) {
-      return db.workouts.where('date').equals(date).first();
+      const records = await db.workouts.where('date').equals(date).toArray();
+      return pickLatestRecord(records);
     },
 
     async getWorkouts(limit = 50) {
@@ -209,7 +227,7 @@
       }
 
       if (!workoutId && payload.date) {
-        const existing = await db.workouts.where('date').equals(payload.date).first();
+        const existing = await this.getWorkoutByDate(payload.date);
         if (existing) {
           await db.workouts.update(existing.id, payload);
           workoutId = existing.id;
@@ -468,7 +486,7 @@
     // --- Sync Helper ---
     async getDateSyncData(dateStr) {
       const schedule = await this.getSchedule(dateStr);
-      const workout = await db.workouts.where('date').equals(dateStr).first();
+      const workout = await this.getWorkoutByDate(dateStr);
       const exercises = workout ? await db.exercises.where('workoutId').equals(workout.id).sortBy('orderIndex') : [];
       const health = await this.getHealth(dateStr);
       const condition = await this.getCondition(dateStr);
@@ -514,7 +532,7 @@
         } : null);
 
         if (workoutPayload) {
-          const existing = await db.workouts.where('date').equals(data.date).first();
+          const existing = await this.getWorkoutByDate(data.date);
           let workoutId = existing ? existing.id : null;
           const w = { ...workoutPayload, date: data.date };
           delete w.id;

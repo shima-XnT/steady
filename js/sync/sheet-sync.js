@@ -184,53 +184,65 @@
         }
 
         const localData = await window.App.DB.getDateSyncData(remoteData.date);
+        const preserveLocalWorkoutDraft = !!window.App?.WorkoutDraftShadow?.isNewer?.(remoteData.date, remoteData.updatedAt);
+        const mergedRemoteData = preserveLocalWorkoutDraft
+          ? { ...remoteData, workout: null, exercises: [] }
+          : remoteData;
+        const hasMergeablePayload = !!(
+          mergedRemoteData.schedule ||
+          mergedRemoteData.health ||
+          mergedRemoteData.condition ||
+          mergedRemoteData.judgment ||
+          mergedRemoteData.workout ||
+          (Array.isArray(mergedRemoteData.exercises) && mergedRemoteData.exercises.length > 0)
+        );
         
         // リモートのほうが新しい → 全上書き
         const remoteNewer = !localData || !localData.updatedAt || 
-          (remoteData.updatedAt && this._safeTs(remoteData.updatedAt) > this._safeTs(localData.updatedAt));
+          (mergedRemoteData.updatedAt && this._safeTs(mergedRemoteData.updatedAt) > this._safeTs(localData.updatedAt));
         
         // ローカルにデータが欠落している場合も補完する
         const hasLocalGap = localData && (
-          (remoteData.schedule && !localData.schedule) ||
-          (remoteData.condition && !localData.condition) ||
-          (remoteData.health && !localData.health) ||
-          (remoteData.workout && !localData.workout)
+          (mergedRemoteData.schedule && !localData.schedule) ||
+          (mergedRemoteData.condition && !localData.condition) ||
+          (mergedRemoteData.health && !localData.health) ||
+          (mergedRemoteData.workout && !localData.workout)
         );
 
         // ヘルスデータのフィールドレベルギャップ検出
-        const hasHealthFieldGap = localData && localData.health && remoteData.health && (
-          (remoteData.health.sleepMinutes != null && localData.health.sleepMinutes == null) ||
-          (remoteData.health.sleepStartAt != null && localData.health.sleepStartAt == null) ||
-          (remoteData.health.sleepEndAt != null && localData.health.sleepEndAt == null) ||
-          (remoteData.health.sleepSessions != null && localData.health.sleepSessions == null) ||
-          (remoteData.health.sleepSessionCount != null && localData.health.sleepSessionCount == null) ||
-          (remoteData.health.napMinutes != null && localData.health.napMinutes == null) ||
-          (remoteData.health.napStartAt != null && localData.health.napStartAt == null) ||
-          (remoteData.health.napEndAt != null && localData.health.napEndAt == null) ||
-          (remoteData.health.napSessions != null && localData.health.napSessions == null) ||
-          (remoteData.health.napCount != null && localData.health.napCount == null) ||
-          (remoteData.health.sleepAnchor != null && localData.health.sleepAnchor == null) ||
-          (remoteData.health.sleepSummary != null && localData.health.sleepSummary == null) ||
-          (remoteData.health.steps != null && localData.health.steps == null) ||
-          (remoteData.health.heartRateAvg != null && localData.health.heartRateAvg == null) ||
-          (remoteData.health.restingHeartRate != null && localData.health.restingHeartRate == null)
+        const hasHealthFieldGap = localData && localData.health && mergedRemoteData.health && (
+          (mergedRemoteData.health.sleepMinutes != null && localData.health.sleepMinutes == null) ||
+          (mergedRemoteData.health.sleepStartAt != null && localData.health.sleepStartAt == null) ||
+          (mergedRemoteData.health.sleepEndAt != null && localData.health.sleepEndAt == null) ||
+          (mergedRemoteData.health.sleepSessions != null && localData.health.sleepSessions == null) ||
+          (mergedRemoteData.health.sleepSessionCount != null && localData.health.sleepSessionCount == null) ||
+          (mergedRemoteData.health.napMinutes != null && localData.health.napMinutes == null) ||
+          (mergedRemoteData.health.napStartAt != null && localData.health.napStartAt == null) ||
+          (mergedRemoteData.health.napEndAt != null && localData.health.napEndAt == null) ||
+          (mergedRemoteData.health.napSessions != null && localData.health.napSessions == null) ||
+          (mergedRemoteData.health.napCount != null && localData.health.napCount == null) ||
+          (mergedRemoteData.health.sleepAnchor != null && localData.health.sleepAnchor == null) ||
+          (mergedRemoteData.health.sleepSummary != null && localData.health.sleepSummary == null) ||
+          (mergedRemoteData.health.steps != null && localData.health.steps == null) ||
+          (mergedRemoteData.health.heartRateAvg != null && localData.health.heartRateAvg == null) ||
+          (mergedRemoteData.health.restingHeartRate != null && localData.health.restingHeartRate == null)
         );
-        const hasExerciseChange = localData && Array.isArray(remoteData.exercises) && remoteData.exercises.length > 0 && (
+        const hasExerciseChange = localData && Array.isArray(mergedRemoteData.exercises) && mergedRemoteData.exercises.length > 0 && (
           !Array.isArray(localData.exercises) ||
-          localData.exercises.length < remoteData.exercises.length ||
+          localData.exercises.length < mergedRemoteData.exercises.length ||
           localData.exercises.some((ex, index) => {
-            const remoteExercise = remoteData.exercises[index] || {};
+            const remoteExercise = mergedRemoteData.exercises[index] || {};
             return !Array.isArray(ex.sets) ||
               ex.sets.length === 0 ||
               (remoteExercise.recommended?.sets != null && ex.recommended?.sets == null);
           }) ||
-          this._hasRemoteExerciseChange(remoteData.exercises, localData.exercises)
+          this._hasRemoteExerciseChange(mergedRemoteData.exercises, localData.exercises)
         );
 
-        if (remoteNewer || hasLocalGap || hasHealthFieldGap || hasExerciseChange) {
-          console.log(`Updating local data for ${remoteData.date} from remote. (newer=${remoteNewer}, gap=${hasLocalGap}, healthGap=${hasHealthFieldGap}, exerciseChange=${hasExerciseChange})`);
-          remoteData._fromSync = true; 
-          await window.App.DB.putDateSync(remoteData);
+        if (hasMergeablePayload && (remoteNewer || hasLocalGap || hasHealthFieldGap || hasExerciseChange)) {
+          console.log(`Updating local data for ${remoteData.date} from remote. (newer=${remoteNewer}, gap=${hasLocalGap}, healthGap=${hasHealthFieldGap}, exerciseChange=${hasExerciseChange}, preserveWorkoutDraft=${preserveLocalWorkoutDraft})`);
+          mergedRemoteData._fromSync = true; 
+          await window.App.DB.putDateSync(mergedRemoteData);
           updatedSomething = true;
         }
       }

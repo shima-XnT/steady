@@ -92,6 +92,129 @@
   let workoutCloudSaveInFlight = false;
   let workoutCloudSaveAgain = false;
   let workoutLocalSaveChain = Promise.resolve();
+  const WORKOUT_DRAFT_SHADOW_PREFIX = 'steady_workout_draft_';
+
+  function workoutDraftShadowKey(dateStr) {
+    return `${WORKOUT_DRAFT_SHADOW_PREFIX}${dateStr}`;
+  }
+
+  function safeShadowTs(value) {
+    if (!value) return 0;
+    const ts = new Date(String(value)).getTime();
+    return Number.isFinite(ts) ? ts : 0;
+  }
+
+  function cloneWorkoutDraftExercises(exercises) {
+    if (!Array.isArray(exercises) || exercises.length === 0) return [];
+    try {
+      return JSON.parse(JSON.stringify(exercises));
+    } catch (error) {
+      console.warn('[Workout] Failed to clone exercises for shadow draft:', error);
+      return [];
+    }
+  }
+
+  function readWorkoutDraftShadow(dateStr) {
+    if (!dateStr) return null;
+    try {
+      const raw = localStorage.getItem(workoutDraftShadowKey(dateStr));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.date !== dateStr) return null;
+      return parsed;
+    } catch (error) {
+      console.warn('[Workout] Failed to read draft shadow:', error);
+      return null;
+    }
+  }
+
+  function buildWorkoutDraftShadow(dateStr, overrides = {}) {
+    if (!dateStr) return null;
+    const base = {
+      date: dateStr,
+      workoutId: currentWorkoutId || null,
+      workoutType: currentWorkoutType || null,
+      exercises: cloneWorkoutDraftExercises(currentExercises),
+      timerState: workoutTimerState || 'idle',
+      timerStart: workoutStartTime || null,
+      timerElapsedSeconds: getWorkoutElapsedSeconds(),
+      updatedAt: new Date().toISOString()
+    };
+    const shadow = { ...base, ...overrides };
+    if (Object.prototype.hasOwnProperty.call(overrides, 'exercises')) {
+      shadow.exercises = cloneWorkoutDraftExercises(overrides.exercises);
+    }
+    return shadow;
+  }
+
+  function persistWorkoutDraftShadow(dateStr, overrides = {}) {
+    const shadow = buildWorkoutDraftShadow(dateStr, overrides);
+    if (!shadow) return null;
+    try {
+      localStorage.setItem(workoutDraftShadowKey(dateStr), JSON.stringify(shadow));
+      return shadow;
+    } catch (error) {
+      console.warn('[Workout] Failed to persist draft shadow:', error);
+      return null;
+    }
+  }
+
+  function clearWorkoutDraftShadow(dateStr) {
+    if (!dateStr) return;
+    localStorage.removeItem(workoutDraftShadowKey(dateStr));
+  }
+
+  function workoutDraftShadowIsNewer(dateStr, updatedAt = '') {
+    const shadow = readWorkoutDraftShadow(dateStr);
+    if (!shadow) return false;
+    return safeShadowTs(shadow.updatedAt) > safeShadowTs(updatedAt);
+  }
+
+  function buildWorkoutFromShadow(existingWorkout, draftShadow, dateStr) {
+    if (!draftShadow) return existingWorkout;
+    const timerStartIso = draftShadow.timerStart ? new Date(draftShadow.timerStart).toISOString() : '';
+    const hasDraftContent =
+      safeNumber(draftShadow.timerElapsedSeconds, 0) > 0 ||
+      draftShadow.timerState === 'running' ||
+      draftShadow.timerState === 'paused' ||
+      (Array.isArray(draftShadow.exercises) && draftShadow.exercises.length > 0);
+
+    return {
+      ...(existingWorkout || {}),
+      id: draftShadow.workoutId || existingWorkout?.id || null,
+      date: dateStr,
+      type: draftShadow.workoutType || existingWorkout?.type || 'custom',
+      status: workoutIsFinished(existingWorkout)
+        ? (existingWorkout?.status || 'completed')
+        : (hasDraftContent ? 'in_progress' : (existingWorkout?.status || 'draft')),
+      startAt: timerStartIso || existingWorkout?.startAt || '',
+      startTime: draftShadow.timerStart ? timerTimeLabel(draftShadow.timerStart) : (existingWorkout?.startTime || ''),
+      updatedAt: draftShadow.updatedAt || existingWorkout?.updatedAt || '',
+      timerState: draftShadow.timerState || existingWorkout?.timerState || 'idle',
+      timerStartedAt: draftShadow.timerState === 'paused' ? '' : (timerStartIso || existingWorkout?.timerStartedAt || ''),
+      timerElapsedSeconds: safeNumber(draftShadow.timerElapsedSeconds, existingWorkout?.timerElapsedSeconds || 0),
+      timerUpdatedAt: draftShadow.updatedAt || existingWorkout?.timerUpdatedAt || ''
+    };
+  }
+
+  App.WorkoutDraftShadow = {
+    read: readWorkoutDraftShadow,
+    writeCurrent: persistWorkoutDraftShadow,
+    clear: clearWorkoutDraftShadow,
+    isNewer: workoutDraftShadowIsNewer
+  };
+
+  window.addEventListener('pagehide', () => {
+    const dateStr = App.Utils?.today?.() || localStorage.getItem(WORKOUT_TIMER_DATE_KEY) || '';
+    const hasDraftState =
+      !!currentWorkoutId ||
+      !!currentWorkoutType ||
+      (Array.isArray(currentExercises) && currentExercises.length > 0) ||
+      getWorkoutElapsedSeconds() > 0;
+    if (dateStr && hasDraftState) {
+      persistWorkoutDraftShadow(dateStr);
+    }
+  });
 
   function clearWorkoutTimerState() {
     if (workoutTimer) {
@@ -1435,26 +1558,42 @@
 
       currentExercises = [];
       currentWorkoutId = null;
+      const draftShadow = readWorkoutDraftShadow(today);
+      const activeShadow = existingWorkout && workoutIsFinished(existingWorkout) ? null : draftShadow;
+      if (existingWorkout && workoutIsFinished(existingWorkout) && draftShadow) {
+        clearWorkoutDraftShadow(today);
+      }
+      const preferShadow = !!activeShadow && (!existingWorkout || workoutDraftShadowIsNewer(today, existingWorkout?.updatedAt));
+      const displayWorkout = preferShadow ? buildWorkoutFromShadow(existingWorkout, activeShadow, today) : existingWorkout;
 
-      const chosenResult = resultValue(judgment) || (existingWorkout?.type === 'skip' ? 5 : 2);
-      currentWorkoutType = this._manualMenuType || (existingWorkout?.type && existingWorkout.type !== 'skip' ? existingWorkout.type : App.Training.getMenuType(chosenResult));
+      const chosenResult = resultValue(judgment) || (displayWorkout?.type === 'skip' ? 5 : 2);
+      currentWorkoutType =
+        this._manualMenuType ||
+        (activeShadow?.workoutType && activeShadow.workoutType !== 'skip' ? activeShadow.workoutType : null) ||
+        (displayWorkout?.type && displayWorkout.type !== 'skip' ? displayWorkout.type : App.Training.getMenuType(chosenResult));
 
-      this._syncTimerFromWorkout(existingWorkout, today);
+      this._syncTimerFromWorkout(displayWorkout, today);
 
-      if (existingWorkout) {
-        currentWorkoutId = existingWorkout.id;
-        if (existingWorkout.type === currentWorkoutType) {
-          const savedExercises = await App.DB.getExercises(existingWorkout.id);
-          if (savedExercises.length > 0) {
-            currentExercises = savedExercises;
+      if (displayWorkout) {
+        currentWorkoutId = displayWorkout.id || activeShadow?.workoutId || null;
+        if (displayWorkout.type === currentWorkoutType) {
+          if (activeShadow?.workoutType === currentWorkoutType && Array.isArray(activeShadow.exercises) && activeShadow.exercises.length > 0 && preferShadow) {
+            currentExercises = cloneWorkoutDraftExercises(activeShadow.exercises);
             await hydrateExerciseHistory(currentExercises, currentWorkoutType, today, condition);
-            const filtered = App.Training.filterExercisesForCondition(currentExercises, condition);
-            if (filtered.removed.length > 0) {
-              currentExercises = filtered.exercises;
-              await App.DB.saveExercises(currentWorkoutId, currentExercises);
-              App.DB.pushToCloud(today, { sections: ['workout', 'exercises'] }).catch(error => {
-                console.warn('[Workout] Failed to push soreness-adjusted draft:', error);
-              });
+          } else if (displayWorkout.id) {
+            const savedExercises = await App.DB.getExercises(displayWorkout.id);
+            if (savedExercises.length > 0) {
+              currentExercises = savedExercises;
+              await hydrateExerciseHistory(currentExercises, currentWorkoutType, today, condition);
+              const filtered = App.Training.filterExercisesForCondition(currentExercises, condition);
+              if (filtered.removed.length > 0) {
+                currentExercises = filtered.exercises;
+                await App.DB.saveExercises(currentWorkoutId, currentExercises);
+                persistWorkoutDraftShadow(today);
+                App.DB.pushToCloud(today, { sections: ['workout', 'exercises'] }).catch(error => {
+                  console.warn('[Workout] Failed to push soreness-adjusted draft:', error);
+                });
+              }
             }
           }
         }
@@ -1462,20 +1601,21 @@
 
       if (!currentWorkoutType && this._manualMenuType) currentWorkoutType = this._manualMenuType;
 
-      if (existingWorkout?.type === 'skip' && !this._manualMenuType) {
-        return this._renderRecoveryView(judgment, existingWorkout, schedule);
+      if (displayWorkout?.type === 'skip' && !this._manualMenuType) {
+        return this._renderRecoveryView(judgment, displayWorkout, schedule);
       }
 
       if (chosenResult === 5 && !this._manualMenuType) {
-        return this._renderRecoveryView(judgment, existingWorkout, schedule);
+        return this._renderRecoveryView(judgment, displayWorkout, schedule);
       }
 
       if (currentExercises.length === 0 && currentWorkoutType) {
         currentExercises = await App.Training.generateMenu(currentWorkoutType, { beforeDate: today, condition });
+        persistWorkoutDraftShadow(today);
       }
 
       if (currentWorkoutType === 'stretch') {
-        return this._renderStretchView(existingWorkout);
+        return this._renderStretchView(displayWorkout);
       }
 
       const requiredExercises = currentExercises.filter(exercise => !exercise.optional && exercise.type !== 'stretch');
@@ -1483,7 +1623,7 @@
       const menuConfig = App.Training.MENU_CONFIGS[currentWorkoutType];
       const progress = workoutProgress(currentExercises);
       const estimated = menuConfig?.estimatedMin || App.Training.getEstimatedDuration(currentWorkoutType);
-      const isCompleted = workoutIsFinished(existingWorkout);
+      const isCompleted = workoutIsFinished(displayWorkout);
       const footerLabel = isCompleted ? '記録を更新する' : '今日はここまでで終了';
       const timerRunning = workoutTimerState === 'running';
       const timerHasValue = timerRunning || getWorkoutElapsedSeconds() > 0;
@@ -1826,6 +1966,7 @@
     },
 
     _autoSave() {
+      persistWorkoutDraftShadow(App.Utils.today());
       const run = async () => {
         try {
           await this._persistWorkoutDraft();
@@ -1885,6 +2026,7 @@
         });
       }
       await App.DB.saveExercises(currentWorkoutId, currentExercises);
+      persistWorkoutDraftShadow(today, { workoutId: currentWorkoutId });
       this._updateDraftStatus('下書き保存済み');
       this._queueCloudSave(today);
     },
@@ -2006,6 +2148,8 @@
       const status = document.getElementById(`stretch-status-${index}`);
       if (status) status.textContent = exercise.completed ? '完了' : '未完';
       if (card) card.classList.toggle('is-done', exercise.completed);
+      this._refreshProgress();
+      this._autoSave();
     },
 
     async syncNow() {
@@ -2021,6 +2165,11 @@
 
     forceMenu(type) {
       this._manualMenuType = type;
+      persistWorkoutDraftShadow(App.Utils.today(), {
+        workoutId: null,
+        workoutType: type,
+        exercises: []
+      });
       currentWorkoutId = null;
       currentExercises = [];
       App.refreshView();
@@ -2028,6 +2177,11 @@
 
     async resumeAfterSkip(type = 'short') {
       this._manualMenuType = type;
+      persistWorkoutDraftShadow(App.Utils.today(), {
+        workoutId: null,
+        workoutType: type,
+        exercises: []
+      });
       currentWorkoutId = null;
       currentExercises = [];
       await App.refreshView();
@@ -2040,6 +2194,7 @@
         workoutTimer = setInterval(() => this._updateTimerDisplay(), 1000);
       }
       this._updateTimerDisplay();
+      persistWorkoutDraftShadow(today);
 
       try {
         await this._persistWorkoutDraft();
@@ -2111,6 +2266,7 @@
           }
         }
         this._updateTimerDisplay();
+        persistWorkoutDraftShadow(today);
         await this._persistWorkoutDraft();
         await this._flushCloudSave(today);
       } finally {
@@ -2144,6 +2300,11 @@
       }
       clearWorkoutTimerState();
       this._updateTimerDisplay();
+      persistWorkoutDraftShadow(today, {
+        timerState: 'idle',
+        timerStart: null,
+        timerElapsedSeconds: 0
+      });
       try {
         if (currentWorkoutId) {
           const existing = await App.DB.getWorkout(currentWorkoutId);
@@ -2164,6 +2325,7 @@
             timerUpdatedAt: new Date().toISOString()
           });
           if (currentExercises.length > 0) await App.DB.saveExercises(currentWorkoutId, currentExercises);
+          persistWorkoutDraftShadow(today, { workoutId: currentWorkoutId });
           await this._flushCloudSave(today);
         }
         App.Utils.showToast('タイマーをリセットしました', 'success');
@@ -2272,6 +2434,7 @@
             warningMessage: 'ワークアウトは保存されましたが、共有側への確定はまだです',
             errorPrefix: 'ワークアウトの保存に失敗しました'
           });
+          clearWorkoutDraftShadow(App.Utils.today());
           clearWorkoutTimerState();
           App.navigate('home');
         } catch (error) {
@@ -2346,6 +2509,7 @@
             warningMessage: '休み記録は保存されましたが、共有側への確定はまだです',
             errorPrefix: '休み記録の保存に失敗しました'
           });
+          clearWorkoutDraftShadow(App.Utils.today());
           clearWorkoutTimerState();
           App.navigate('home');
         } catch (error) {
@@ -2396,6 +2560,7 @@
             warningMessage: 'ストレッチ記録は保存されましたが、共有側への確定はまだです',
             errorPrefix: 'ストレッチ記録の保存に失敗しました'
           });
+          clearWorkoutDraftShadow(App.Utils.today());
           clearWorkoutTimerState();
           App.navigate('home');
         } catch (error) {
@@ -2418,10 +2583,16 @@
       }
     },
 
-    destroy() {
-      if (workoutCloudSaveTimer) {
-        const dateStr = App.Utils.today();
-        this._flushCloudSave(dateStr);
+    async destroy() {
+      const dateStr = App.Utils?.today?.() || localStorage.getItem(WORKOUT_TIMER_DATE_KEY) || '';
+      if (dateStr) {
+        persistWorkoutDraftShadow(dateStr);
+      }
+      await workoutLocalSaveChain.catch(error => {
+        console.warn('[Workout] Draft save chain failed during destroy:', error);
+      });
+      if (workoutCloudSaveTimer && dateStr) {
+        await this._flushCloudSave(dateStr);
       }
       this.dismissRestTimer();
       this._manualMenuType = null;
