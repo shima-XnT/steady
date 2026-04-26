@@ -21,14 +21,14 @@
 
   // デフォルト初期値
   const DEFAULTS = {
-    leg_press:      { weight: 20, reps: 10, sets: 2 },
-    lat_pulldown:   { weight: 15, reps: 10, sets: 2 },
-    chest_press:    { weight: 10, reps: 10, sets: 2 },
-    shoulder_press: { weight: 5,  reps: 10, sets: 2 },
-    biceps_curl:    { weight: 5,  reps: 10, sets: 2 },
-    dips:           { weight: 0,  reps: 5,  sets: 2 },
-    ab_bench:       { weight: 0,  reps: 10, sets: 2 },
-    adduction:      { weight: 10, reps: 12, sets: 2 },
+    leg_press:      { weight: 20, reps: 10, sets: 3 },
+    lat_pulldown:   { weight: 15, reps: 10, sets: 3 },
+    chest_press:    { weight: 10, reps: 10, sets: 3 },
+    shoulder_press: { weight: 5,  reps: 10, sets: 3 },
+    biceps_curl:    { weight: 5,  reps: 10, sets: 3 },
+    dips:           { weight: 0,  reps: 5,  sets: 3 },
+    ab_bench:       { weight: 0,  reps: 10, sets: 3 },
+    adduction:      { weight: 10, reps: 12, sets: 3 },
     treadmill:      { weight: 0,  reps: 0,  sets: 1, durationMin: 10, speed: 5 }
   };
 
@@ -41,7 +41,9 @@
       main: ['leg_press', 'chest_press', 'lat_pulldown', 'shoulder_press', 'ab_bench'],
       optional: ['biceps_curl', 'adduction', 'dips'],
       cooldown: ['treadmill'],      // 5分クールダウン
-      estimatedMin: 40
+      estimatedMin: 50,
+      targetMainCount: 4,
+      targetOptionalCount: 1
     },
     // 短縮メニュー（20-30分）: 主要種目のみ
     short: {
@@ -50,7 +52,9 @@
       main: ['leg_press', 'chest_press', 'lat_pulldown'],
       optional: ['ab_bench'],
       cooldown: [],
-      estimatedMin: 25
+      estimatedMin: 35,
+      targetMainCount: 3,
+      targetOptionalCount: 0
     },
     // 有酸素（15-30分）
     cardio: {
@@ -183,7 +187,7 @@
       maxSets: base.maxSets || (isAssist ? 3 : 4),
       defaultWeight: defaults.weight || 0,
       defaultReps: defaults.reps || 10,
-      defaultSets: defaults.sets || 2,
+      defaultSets: defaults.sets || 3,
       weightStep: base.weightStep ?? PROGRESSION.weightStep,
       isMain: !isAssist,
       isLegPress: equipment.id === 'leg_press'
@@ -261,6 +265,108 @@
     }));
   }
 
+  const MENU_SLOT_BY_EXERCISE = {
+    leg_press: 'lower',
+    adduction: 'lower',
+    chest_press: 'push',
+    shoulder_press: 'push',
+    dips: 'push',
+    lat_pulldown: 'pull',
+    biceps_curl: 'pull',
+    ab_bench: 'core',
+    treadmill: 'cardio'
+  };
+
+  const MENU_BASE_PRIORITY = {
+    leg_press: 96,
+    chest_press: 94,
+    lat_pulldown: 93,
+    shoulder_press: 74,
+    ab_bench: 72,
+    biceps_curl: 58,
+    adduction: 56,
+    dips: 52
+  };
+
+  function historyDaysAgo(history, todayStr) {
+    const lastDate = Array.isArray(history) ? history.find(item => item?.workoutDate)?.workoutDate : '';
+    if (!lastDate) return 99;
+    return daysBetween(lastDate, todayStr);
+  }
+
+  function menuSignals(condition = {}) {
+    const fatigue = num(condition.fatigue, 0);
+    const soreness = num(condition.muscleSoreness, 0);
+    const sleepMinutes = num(condition.sleepMinutes, 0);
+    const motivation = num(condition.motivation, 3);
+    const mood = num(condition.mood, 3);
+    const steps = num(condition.steps, 0);
+    const shiftType = String(condition.shiftType || '');
+    const areas = new Set(parseSorenessAreas(condition.sorenessAreas));
+    return {
+      fatigue,
+      soreness,
+      sleepMinutes,
+      motivation,
+      mood,
+      steps,
+      shiftType,
+      areas,
+      recoveryLow: fatigue >= 4 || soreness >= 3 || (sleepMinutes > 0 && sleepMinutes < 360),
+      recoveryVeryLow: fatigue >= 5 || soreness >= 4 || (sleepMinutes > 0 && sleepMinutes < 300),
+      lowerLoadHigh: steps >= 12000 || shiftType === 'project' || shiftType === 'business_trip',
+      upperSlightlySore: soreness >= 1 && ['胸', '肩', '腕', '背中'].some(area => areas.has(area)),
+      lowerSlightlySore: soreness >= 1 && ['脚', '体幹'].some(area => areas.has(area)),
+      motivationLow: motivation <= 2,
+      moodLow: mood <= 2
+    };
+  }
+
+  function scoreMenuCandidate(exerciseId, history, condition, todayStr, menuType, optional = false) {
+    const slot = MENU_SLOT_BY_EXERCISE[exerciseId] || 'other';
+    const signals = menuSignals(condition);
+    const daysAgo = historyDaysAgo(history, todayStr);
+    let score = MENU_BASE_PRIORITY[exerciseId] ?? 40;
+
+    score += Math.min(daysAgo, 6) * 3;
+    if (daysAgo <= 1) score -= 10;
+
+    if (signals.recoveryLow) {
+      if (slot === 'core') score += 10;
+      if (exerciseId === 'shoulder_press' || exerciseId === 'dips' || exerciseId === 'biceps_curl') score -= 14;
+      if (exerciseId === 'leg_press' || exerciseId === 'adduction') score -= 8;
+    }
+
+    if (signals.recoveryVeryLow) {
+      if (optional) score -= 20;
+      if (exerciseId === 'shoulder_press' || exerciseId === 'dips') score -= 10;
+    }
+
+    if (signals.lowerLoadHigh && (exerciseId === 'leg_press' || exerciseId === 'adduction')) {
+      score -= 18;
+    }
+
+    if (signals.upperSlightlySore && (slot === 'push' || slot === 'pull')) {
+      score -= 10;
+    }
+
+    if (signals.lowerSlightlySore && slot === 'lower') {
+      score -= 10;
+    }
+
+    if (menuType === 'short') {
+      if (slot === 'core') score += 6;
+      if (optional) score -= 6;
+    }
+
+    if (signals.motivationLow || signals.moodLow) {
+      if (exerciseId === 'ab_bench') score += 4;
+      if (exerciseId === 'shoulder_press' || exerciseId === 'dips') score -= 6;
+    }
+
+    return { score, slot, daysAgo };
+  }
+
   const Training = {
     EQUIPMENT,
     DEFAULTS,
@@ -270,6 +376,56 @@
 
     isBlockedBySoreness(exercise, condition) {
       return shouldAvoidForSoreness(exercise, sorenessContext(condition));
+    },
+
+    _pickBestCandidate(pool, used, predicate = null) {
+      for (const candidate of pool) {
+        if (used.has(candidate.exercise.equipmentId)) continue;
+        if (predicate && !predicate(candidate)) continue;
+        used.add(candidate.exercise.equipmentId);
+        return candidate;
+      }
+      return null;
+    },
+
+    _selectStrengthMenu(config, mainPool, optionalPool, condition = {}, menuType = 'full') {
+      const signals = menuSignals(condition);
+      const used = new Set();
+      const selectedMain = [];
+      const selectedOptional = [];
+      const mainTarget = Math.max(1, num(config.targetMainCount, mainPool.length));
+      const optionalTarget = Math.max(0, num(config.targetOptionalCount, optionalPool.length));
+
+      const requiredSlots = menuType === 'short'
+        ? (signals.lowerLoadHigh ? ['push', 'pull', 'core'] : ['lower', 'push', 'pull'])
+        : (signals.lowerLoadHigh ? ['push', 'pull', 'core'] : ['lower', 'push', 'pull', 'core']);
+
+      requiredSlots.forEach(slot => {
+        if (selectedMain.length >= mainTarget) return;
+        const candidate = this._pickBestCandidate(mainPool, used, item => item.slot === slot);
+        if (candidate) selectedMain.push(candidate);
+      });
+
+      while (selectedMain.length < mainTarget) {
+        const candidate = this._pickBestCandidate(mainPool, used);
+        if (!candidate) break;
+        selectedMain.push(candidate);
+      }
+
+      const allowedOptional = signals.recoveryVeryLow
+        ? 0
+        : (signals.recoveryLow ? Math.min(optionalTarget, 1) : optionalTarget);
+
+      while (selectedOptional.length < allowedOptional) {
+        const candidate = this._pickBestCandidate(optionalPool, used);
+        if (!candidate) break;
+        selectedOptional.push(candidate);
+      }
+
+      return {
+        main: selectedMain.map(item => item.exercise),
+        optional: selectedOptional.map(item => item.exercise)
+      };
     },
 
     filterExercisesForCondition(exercises, condition) {
@@ -327,7 +483,6 @@
         }));
       }
 
-      const exercises = [];
       const beforeDate = options.beforeDate || null;
       const historyFor = async (exerciseName) => {
         if (App.DB.getExerciseHistoryByName) {
@@ -337,35 +492,60 @@
         return last ? [last] : [];
       };
 
+      const allIds = [
+        ...config.warmup,
+        ...config.main,
+        ...config.optional,
+        ...config.cooldown
+      ].filter((id, index, list) => list.indexOf(id) === index);
+      const historyMap = new Map();
+      for (const id of allIds) {
+        const eq = EQUIPMENT.find(e => e.id === id);
+        if (!eq) continue;
+        historyMap.set(id, await historyFor(eq.name));
+      }
+
+      const exercises = [];
+
       // ウォームアップ
       for (const id of config.warmup) {
         const eq = EQUIPMENT.find(e => e.id === id);
-        const history = await historyFor(eq.name);
+        const history = historyMap.get(id) || [];
         exercises.push(this._buildExercise(eq, history, { isWarmup: true, menuType, today: beforeDate }));
       }
 
-      // メイン種目
-      for (const id of config.main) {
+      const mainPool = config.main.map(id => {
         const eq = EQUIPMENT.find(e => e.id === id);
-        if (!eq) continue;
-        if (shouldAvoidForSoreness(eq, soreness)) continue;
-        const history = await historyFor(eq.name);
-        exercises.push(this._buildExercise(eq, history, { menuType, today: beforeDate }));
-      }
+        if (!eq || shouldAvoidForSoreness(eq, soreness)) return null;
+        const history = historyMap.get(id) || [];
+        const exercise = this._buildExercise(eq, history, { menuType, today: beforeDate });
+        const scored = scoreMenuCandidate(id, history, options.condition || {}, beforeDate, menuType, false);
+        return { exercise, history, ...scored };
+      }).filter(Boolean).sort((a, b) => b.score - a.score);
 
-      // オプション種目
-      for (const id of config.optional) {
+      const optionalPool = config.optional.map(id => {
         const eq = EQUIPMENT.find(e => e.id === id);
-        if (!eq) continue;
-        if (shouldAvoidForSoreness(eq, soreness)) continue;
-        const history = await historyFor(eq.name);
-        exercises.push(this._buildExercise(eq, history, { optional: true, menuType, today: beforeDate }));
+        if (!eq || shouldAvoidForSoreness(eq, soreness)) return null;
+        const history = historyMap.get(id) || [];
+        const exercise = this._buildExercise(eq, history, { optional: true, menuType, today: beforeDate });
+        const scored = scoreMenuCandidate(id, history, options.condition || {}, beforeDate, menuType, true);
+        return { exercise, history, ...scored };
+      }).filter(Boolean).sort((a, b) => b.score - a.score);
+
+      const selected = this._selectStrengthMenu(config, mainPool, optionalPool, options.condition || {}, menuType);
+      exercises.push(...selected.main, ...selected.optional);
+
+      if (!selected.main.length && !selected.optional.length && menuType !== 'cardio') {
+        const fallbackCore = EQUIPMENT.find(e => e.id === 'ab_bench');
+        if (fallbackCore && !shouldAvoidForSoreness(fallbackCore, soreness)) {
+          exercises.push(this._buildExercise(fallbackCore, historyMap.get('ab_bench') || [], { optional: true, menuType, today: beforeDate }));
+        }
       }
 
       // クールダウン
       for (const id of config.cooldown) {
         const eq = EQUIPMENT.find(e => e.id === id);
-        const history = await historyFor(eq.name);
+        const history = historyMap.get(id) || [];
         exercises.push(this._buildExercise(eq, history, { isCooldown: true, menuType, today: beforeDate }));
       }
 
@@ -385,7 +565,7 @@
      */
     // Deprecated reference only. Active menu generation uses _buildExercise() below.
     _buildExerciseLegacy(equipment, prevData, flags = {}) {
-      const def = DEFAULTS[equipment.id] || { weight: 0, reps: 10, sets: 2 };
+      const def = DEFAULTS[equipment.id] || { weight: 0, reps: 10, sets: 3 };
       const isCardio = equipment.category === '有酸素';
       const menuType = flags.menuType || 'full';
       const TARGET_REPS = 12;  // 目標上限回数
@@ -512,7 +692,7 @@
      * メニュータイプの推定所要時間
      */
     _buildExercise(equipment, historyInput, flags = {}) {
-      const def = DEFAULTS[equipment.id] || { weight: 0, reps: 10, sets: 2 };
+      const def = DEFAULTS[equipment.id] || { weight: 0, reps: 10, sets: 3 };
       const isCardio = equipment.id === 'treadmill' || equipment.category === '有酸素';
       const menuType = flags.menuType || 'full';
       const profile = profileFor(equipment, flags, def);
