@@ -345,6 +345,31 @@
     return safeNumber(value, 0);
   }
 
+  const EXERCISE_WEIGHT_STEPS = {
+    leg_press: 5,
+    chest_press: 5,
+    lat_pulldown: 5,
+    shoulder_press: 5,
+    biceps_curl: 5,
+    adduction: 5,
+    dips: 0,
+    ab_bench: 0
+  };
+
+  function getExerciseWeightStep(exercise) {
+    const explicit = Number(exercise?.weightStep);
+    if (Number.isFinite(explicit) && explicit >= 0) return explicit;
+    const fallback = EXERCISE_WEIGHT_STEPS[exercise?.equipmentId];
+    return Number.isFinite(fallback) ? fallback : 5;
+  }
+
+  function formatRecommendationNote(exercise) {
+    const note = String(exercise?.recommended?.note || '').trim();
+    if (!note) return '無理なく進める設定';
+    const step = getExerciseWeightStep(exercise);
+    return step > 0 ? note.replace(/\+?2\.5kg/g, `+${step}kg`) : note;
+  }
+
   function formatMinutes(minutes) {
     if (minutes == null || minutes === '') return '未計算';
     return `${minutes}分`;
@@ -1413,6 +1438,7 @@
     const done = countExerciseDone(exercise);
     const total = exercise.sets?.length || 0;
     const currentLine = summarizeExercise(exercise);
+    const weightStep = getExerciseWeightStep(exercise);
     const previousLine = exercise.previous
       ? (exercise.isCardio
         ? `速度${safeNumber(exercise.previous.speed, 5)}km/h × ${safeNumber(exercise.previous.durationMin || exercise.previous.reps, 0)}分`
@@ -1437,7 +1463,7 @@
           <div class="reboot-complete-box" id="workout-complete-${index}">${isExerciseDone(exercise) ? '完了' : `${done}/${total}`}</div>
         </div>
 
-        <div class="reboot-metric-grid reboot-metric-grid-3">
+        <div class="reboot-metric-grid reboot-metric-grid-2">
           <div class="reboot-mini-stat">
             <span>前回</span>
             <strong>${h(previousLine)}</strong>
@@ -1445,12 +1471,7 @@
           <div class="reboot-mini-stat">
             <span>今日の推奨</span>
             <strong>${h(recommendedLine)}</strong>
-                    <small>${h(exercise.recommended?.note || '段階的に進める設定')}</small>
-          </div>
-          <div class="reboot-mini-stat">
-            <span>今回入力</span>
-            <strong id="workout-current-${index}">${h(currentLine)}</strong>
-            <small>${h(exercise.category || '')}</small>
+                    <small>${h(formatRecommendationNote(exercise))}</small>
           </div>
         </div>
 
@@ -1482,7 +1503,7 @@
               <div class="reboot-set-row">
                 <div class="reboot-set-label">${set.setNumber}セット目</div>
                 <div class="reboot-set-inputs">
-                  <input class="form-input" type="number" inputmode="decimal" min="0" step="2.5" value="${h(editableNumberValue(set.weight))}"
+                  <input class="form-input" type="number" inputmode="decimal" min="0" step="${h(editableNumberValue(weightStep > 0 ? weightStep : 1, 5))}" value="${h(editableNumberValue(set.weight))}"
                     oninput="App.Views.Workout.updateSet(${index}, ${setIndex}, 'weight', this.value)">
                   <span>kg</span>
                   <input class="form-input" type="number" inputmode="numeric" min="0" step="1" value="${h(editableNumberValue(set.reps))}"
@@ -1520,7 +1541,7 @@
       const seed = queues.get(exercise.name)?.shift();
       if (!seed) return;
 
-      ['isCardio', 'isWarmup', 'isCooldown', 'optional', 'category', 'icon', 'durationMin'].forEach(key => {
+      ['isCardio', 'isWarmup', 'isCooldown', 'optional', 'category', 'icon', 'durationMin', 'weightStep'].forEach(key => {
         if (exercise[key] == null && seed[key] != null) {
           exercise[key] = seed[key];
           changed = true;
@@ -1638,7 +1659,7 @@
             <div class="reboot-title-block">
               <span class="reboot-eyebrow">Workout</span>
               <h2>ワークアウト</h2>
-              <p>必須種目を先に終え、追加分は任意で進めます。前回実績、今日の推奨、今回入力を同時に見られます。</p>
+              <p>必須種目を先に終えて、前回実績と今日の推奨を見ながら進めます。</p>
             </div>
             <div class="reboot-head-tools">
               ${await renderSyncPanel('App.Views.Workout.syncNow()')}
@@ -1886,11 +1907,9 @@
       const done = countExerciseDone(exercise);
       const total = exercise.sets?.length || 0;
       const complete = card.querySelector(`#workout-complete-${index}`);
-      const current = card.querySelector(`#workout-current-${index}`);
       const header = card.querySelector(`#workout-summary-${index}`);
 
       if (complete) complete.textContent = isExerciseDone(exercise) ? '完了' : `${done}/${total}`;
-      if (current) current.textContent = summary;
       if (header) header.textContent = summary;
       card.classList.toggle('is-done', isExerciseDone(exercise));
 

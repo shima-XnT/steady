@@ -343,6 +343,15 @@ body {
   gap: 12px;
 }
 
+.reboot-metric-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.reboot-exercise-card .reboot-metric-grid-2 > .reboot-mini-stat:nth-child(3) {
+  display: none;
+}
+
 .reboot-stat-card,
 .reboot-mini-stat,
 .reboot-empty-card,
@@ -1166,7 +1175,13 @@ body {
   .reboot-metric-grid-3 {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+  .reboot-metric-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .reboot-exercise-card .reboot-metric-grid-3 {
+    grid-template-columns: 1fr;
+  }
+  .reboot-exercise-card .reboot-metric-grid-2 {
     grid-template-columns: 1fr;
   }
   .reboot-area-grid {
@@ -1602,6 +1617,11 @@ body {
     gap: 8px;
   }
 
+  .reboot-metric-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
   .reboot-home-actions {
     grid-template-columns: 1fr 1fr;
     gap: 10px;
@@ -1612,6 +1632,10 @@ body {
   }
 
   .reboot-exercise-card .reboot-metric-grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .reboot-exercise-card .reboot-metric-grid-2 {
     grid-template-columns: 1fr;
   }
 

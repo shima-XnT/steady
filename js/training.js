@@ -85,21 +85,21 @@
     repMax: 12,
     legPressWeightCap: 60,
     legPressRepCap: 30,
-    weightStep: 2.5,
+    weightStep: 5,
     weightStableStreak: 2,
     setStableStreak: 4,
     legSetStableStreak: 3
   };
 
   const EXERCISE_PROFILES = {
-    leg_press: { role: 'main', maxSets: 4, weightCap: 60, highRepCap: 30 },
-    chest_press: { role: 'main', maxSets: 4 },
-    lat_pulldown: { role: 'main', maxSets: 4 },
-    shoulder_press: { role: 'main', maxSets: 4 },
-    biceps_curl: { role: 'assist', maxSets: 3 },
+    leg_press: { role: 'main', maxSets: 4, weightCap: 60, highRepCap: 30, weightStep: 5 },
+    chest_press: { role: 'main', maxSets: 4, weightStep: 5 },
+    lat_pulldown: { role: 'main', maxSets: 4, weightStep: 5 },
+    shoulder_press: { role: 'main', maxSets: 4, weightStep: 5 },
+    biceps_curl: { role: 'assist', maxSets: 3, weightStep: 5 },
     dips: { role: 'assist', maxSets: 3, weightStep: 0 },
     ab_bench: { role: 'assist', maxSets: 3, weightStep: 0 },
-    adduction: { role: 'assist', maxSets: 3 }
+    adduction: { role: 'assist', maxSets: 3, weightStep: 5 }
   };
 
   const EXERCISE_BODY_AREAS = {
@@ -130,6 +130,11 @@
   function roundToStep(value, step = PROGRESSION.weightStep) {
     if (!step) return Math.max(0, value);
     return Math.max(0, Math.round(value / step) * step);
+  }
+
+  function formatWeightStep(step) {
+    const normalized = num(step, PROGRESSION.weightStep);
+    return Number.isInteger(normalized) ? String(normalized) : String(normalized).replace(/\.0+$/, '');
   }
 
   function parseSorenessAreas(value) {
@@ -621,7 +626,7 @@
         } else if (perf?.allCompleted && stable >= PROGRESSION.weightStableStreak) {
           weight = Math.min(PROGRESSION.legPressWeightCap, roundToStep(weight + profile.weightStep, profile.weightStep));
           reps = weight >= PROGRESSION.legPressWeightCap ? 10 : profile.repMin;
-          note = weight >= PROGRESSION.legPressWeightCap ? '60kg到達。次は回数' : '+2.5kg候補';
+          note = weight >= PROGRESSION.legPressWeightCap ? '60kg到達。次は回数' : `+${formatWeightStep(profile.weightStep)}kg候補`;
           phase = 'weight';
           capReached = weight >= PROGRESSION.legPressWeightCap;
         } else if (perf?.allCompleted) {
@@ -640,7 +645,7 @@
       } else if (perf?.allCompleted && stable >= PROGRESSION.weightStableStreak && profile.weightStep > 0) {
         weight = roundToStep(weight + profile.weightStep, profile.weightStep);
         reps = profile.repMin;
-        note = '+2.5kg候補';
+        note = `+${formatWeightStep(profile.weightStep)}kg候補`;
         phase = 'weight';
       } else if (perf?.allCompleted) {
         note = '重量維持。次回アップ候補';
@@ -678,6 +683,7 @@
         isWarmup: !!flags.isWarmup,
         isCooldown: !!flags.isCooldown,
         optional: !!flags.optional,
+        weightStep: profile.weightStep,
         sets: buildSets(sets, weight, reps),
         durationMin: 0,
         previous: prevInfo,
